@@ -110,8 +110,8 @@ class Transaction(db.Model):
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     account_id: Mapped[str] = mapped_column(String(36), ForeignKey("accounts.id"), nullable=False)
     parent_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("transactions.id"))
-    type_id: Mapped[str] = mapped_column(String(3), ForeignKey("tx_type.id"), nullable=False)
-    class_id: Mapped[str] = mapped_column(String(3), ForeignKey("tx_class.id"), nullable=False)
+    type_id: Mapped[str | None] = mapped_column(String(3), ForeignKey("tx_type.id"), nullable=True)
+    class_id: Mapped[str | None] = mapped_column(String(3), ForeignKey("tx_class.id"), nullable=True)
     category_id: Mapped[str | None] = mapped_column(String(10), ForeignKey("tx_category.id"))
     source: Mapped[str] = mapped_column(String(32))  # manual/import_excel/nordigen
     external_id: Mapped[str | None] = mapped_column(String(255))
