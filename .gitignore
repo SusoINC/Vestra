@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Entorno
+.env
+*.env.local
+
+# Frontend build
+frontend/dist/
+frontend/node_modules/
+
+# Logs
+*.log
+logs/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code (configuración local del agente)
+.claude/

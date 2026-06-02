@@ -1,0 +1,41 @@
+# Core
+Flask==3.1.1
+Flask-SQLAlchemy==3.1.1
+SQLAlchemy==2.0.41
+Flask-JWT-Extended==4.7.1
+Flask-Cors==6.0.0
+Flask-Migrate==4.1.0
+alembic==1.16.1
+
+# Database
+psycopg2-binary==2.9.10
+
+# Task scheduling
+APScheduler==3.11.0
+
+# Environment
+python-dotenv==1.1.0
+
+# Validation & serialization
+marshmallow==3.26.1
+marshmallow-sqlalchemy==1.4.2
+
+# Password hashing
+bcrypt==4.3.0
+
+# HTTP client (bank APIs)
+requests==2.32.3
+
+# Data import — pandas 2.3+ tiene wheels para Python 3.13
+pandas==2.3.0
+openpyxl==3.1.5
+
+# PDF export
+WeasyPrint==65.0
+
+# WSGI server (producción)
+gunicorn==23.0.0
+
+# Utilities
+python-dateutil==2.9.0.post0
+pytz==2025.2
