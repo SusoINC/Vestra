@@ -22,6 +22,12 @@ const financeApi = {
   // Transactions
   getTransactions: (params = {}) =>
     axiosClient.get("/finance/transactions", { params }),
+  getAllTransactions: (params = {}) =>
+    axiosClient.get("/finance/transactions/all", { params }),
+  updateTransaction: (id, data) =>
+    axiosClient.put(`/finance/transactions/${id}`, data),
+  unsplit: (id) =>
+    axiosClient.post(`/finance/transactions/${id}/unsplit`),
   getPending: () => axiosClient.get("/finance/transactions/pending"),
   categorize: (id, data) =>
     axiosClient.put(`/finance/transactions/${id}/categorize`, data),

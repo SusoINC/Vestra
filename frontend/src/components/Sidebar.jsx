@@ -47,6 +47,10 @@ export default function Sidebar() {
           )}
         </NavLink>
 
+        <NavLink to="/edit-transactions" className={({ isActive }) => `${navItem} ${isActive ? active : inactive}`}>
+          <span>✏️</span> Editar movimientos
+        </NavLink>
+
         <NavLink to="/import" className={({ isActive }) => `${navItem} ${isActive ? active : inactive}`}>
           <span>📥</span> Importar
         </NavLink>

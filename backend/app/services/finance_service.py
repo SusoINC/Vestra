@@ -3,7 +3,9 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import select, func
+from datetime import date as date_type
+
+from sqlalchemy import select, func, or_
 
 from ..extensions import db
 from ..models.finance import Account, Transaction, TxCategory, TxClass, TxType
@@ -154,6 +156,119 @@ def count_pending(user_id: str) -> int:
             Transaction.parent_id == None,
         )
     ).scalar()
+
+
+def list_all_transactions(user_id: str, filters: dict) -> dict:
+    """
+    Returns ALL top-level transactions (categorized + pending + split parents).
+    Split children are embedded inside their parent's 'splits' key.
+    Supports full-text search across company / description / comment.
+    """
+    q = select(Transaction).where(
+        Transaction.user_id == user_id,
+        Transaction.parent_id == None,  # top-level only
+    )
+
+    # Free-text search
+    if filters.get("q"):
+        term = f"%{filters['q']}%"
+        q = q.where(
+            or_(
+                Transaction.company.ilike(term),
+                Transaction.description.ilike(term),
+                Transaction.comment.ilike(term),
+            )
+        )
+
+    # Status filter
+    status = filters.get("status", "all")
+    if status == "pending":
+        q = q.where(Transaction.category_id == None, Transaction.is_split == False)
+    elif status == "categorized":
+        q = q.where(Transaction.category_id != None)
+
+    if filters.get("account_id"):
+        q = q.where(Transaction.account_id == filters["account_id"])
+    if filters.get("type_id"):
+        q = q.where(Transaction.type_id == filters["type_id"])
+    if filters.get("category_id"):
+        q = q.where(Transaction.category_id == filters["category_id"])
+    if filters.get("date_from"):
+        q = q.where(Transaction.op_date >= filters["date_from"])
+    if filters.get("date_to"):
+        q = q.where(Transaction.op_date <= filters["date_to"])
+
+    total = db.session.execute(
+        select(func.count()).select_from(q.subquery())
+    ).scalar()
+
+    page = int(filters.get("page", 1))
+    per_page = int(filters.get("per_page", 50))
+    items = db.session.execute(
+        q.order_by(Transaction.op_date.desc(), Transaction.created_at.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+    ).scalars().all()
+
+    result = []
+    for tx in items:
+        d = tx_to_dict(tx)
+        if tx.is_split:
+            children = db.session.execute(
+                select(Transaction)
+                .where(Transaction.parent_id == tx.id)
+                .order_by(Transaction.created_at)
+            ).scalars().all()
+            d["splits"] = [tx_to_dict(c) for c in children]
+        result.append(d)
+
+    return {
+        "items": result,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": (total + per_page - 1) // per_page,
+    }
+
+
+def update_transaction(tx: Transaction, data: dict) -> Transaction:
+    """Full update — edits any field including date, amount, categorisation."""
+    for field in ("op_date", "amount", "company", "description", "comment"):
+        if field in data and data[field] is not None:
+            setattr(tx, field, data[field])
+
+    # Categorisation fields — allow clearing back to pending
+    if "category_id" in data:
+        if data["category_id"] in (None, ""):
+            tx.category_id = None
+            tx.type_id = None
+            tx.class_id = None
+        else:
+            tx.category_id = data["category_id"]
+            if "type_id" in data:
+                tx.type_id = data["type_id"]
+            if "class_id" in data:
+                tx.class_id = data["class_id"]
+
+    db.session.commit()
+    return tx
+
+
+def unsplit_transaction(tx: Transaction) -> Transaction:
+    """Deletes all split children and reverts parent to a normal pending transaction."""
+    if not tx.is_split:
+        raise ValueError("NOT_SPLIT")
+    children = db.session.execute(
+        select(Transaction).where(Transaction.parent_id == tx.id)
+    ).scalars().all()
+    for c in children:
+        db.session.delete(c)
+    tx.is_split = False
+    tx.category_id = None
+    tx.type_id = None
+    tx.class_id = None
+    db.session.commit()
+    return tx
 
 
 def get_transaction(user_id: str, tx_id: str) -> Transaction | None:

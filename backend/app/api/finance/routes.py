@@ -104,6 +104,30 @@ def list_transactions():
     })
 
 
+@bp.get("/transactions/all")
+@jwt_required()
+def list_all_transactions():
+    user = get_current_user()
+    filters = {
+        "q":           request.args.get("q", "").strip(),
+        "status":      request.args.get("status", "all"),
+        "account_id":  request.args.get("account_id"),
+        "type_id":     request.args.get("type_id"),
+        "category_id": request.args.get("category_id"),
+        "date_from":   request.args.get("date_from"),
+        "date_to":     request.args.get("date_to"),
+        "page":        request.args.get("page", 1),
+        "per_page":    request.args.get("per_page", 50),
+    }
+    result = finance_service.list_all_transactions(user.id, filters)
+    return ok(result["items"], meta={
+        "total": result["total"],
+        "page": result["page"],
+        "per_page": result["per_page"],
+        "pages": result["pages"],
+    })
+
+
 @bp.get("/transactions/pending")
 @jwt_required()
 def list_pending():
@@ -157,6 +181,34 @@ def split(tx_id):
         "parent": finance_service.tx_to_dict(tx),
         "splits": [finance_service.tx_to_dict(c) for c in children],
     })
+
+
+@bp.put("/transactions/<tx_id>")
+@jwt_required()
+def update_transaction(tx_id):
+    user = get_current_user()
+    tx = finance_service.get_transaction(user.id, tx_id)
+    if not tx:
+        return error("NOT_FOUND", "Transacción no encontrada", 404)
+    if tx.is_split:
+        return error("IS_SPLIT_PARENT", "Edita directamente cada split, no el padre")
+    body = request.get_json(silent=True) or {}
+    tx = finance_service.update_transaction(tx, body)
+    return ok(finance_service.tx_to_dict(tx))
+
+
+@bp.post("/transactions/<tx_id>/unsplit")
+@jwt_required()
+def unsplit(tx_id):
+    user = get_current_user()
+    tx = finance_service.get_transaction(user.id, tx_id)
+    if not tx:
+        return error("NOT_FOUND", "Transacción no encontrada", 404)
+    try:
+        tx = finance_service.unsplit_transaction(tx)
+    except ValueError:
+        return error("NOT_SPLIT", "Esta transacción no está spliteada")
+    return ok(finance_service.tx_to_dict(tx))
 
 
 @bp.delete("/transactions/<tx_id>")
