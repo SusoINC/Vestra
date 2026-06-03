@@ -1,19 +1,21 @@
 import { NavLink } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import financeApi from "../api/finance";
+import useFinanceStore from "../store/financeStore";
 
 const navItem = "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors";
 const active = "bg-navy-700 text-white font-medium";
 const inactive = "text-navy-400 hover:text-white hover:bg-navy-800";
 
 export default function Sidebar() {
-  const [pendingCount, setPendingCount] = useState(0);
+  const { pendingCount, setPendingCount } = useFinanceStore();
 
+  // Carga inicial del contador
   useEffect(() => {
     financeApi.getPending()
       .then((r) => setPendingCount(r.data.meta?.total ?? 0))
       .catch(() => {});
-  }, []);
+  }, [setPendingCount]);
 
   return (
     <aside className="w-56 shrink-0 bg-navy-900 border-r border-navy-700 flex flex-col h-screen sticky top-0">
@@ -23,8 +25,14 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        <NavLink to="/dashboard" className={({ isActive }) => `${navItem} ${isActive ? active : inactive}`}>
+          <span>🏠</span> Inicio
+        </NavLink>
+
+        <div className="border-t border-navy-700/50 my-2" />
+
         {/* Finanzas */}
-        <p className="text-navy-500 text-xs font-semibold uppercase tracking-widest px-3 pb-1 pt-2">
+        <p className="text-navy-500 text-xs font-semibold uppercase tracking-widest px-3 pb-1 pt-1">
           Finanzas
         </p>
 

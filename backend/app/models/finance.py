@@ -121,6 +121,10 @@ class Transaction(db.Model):
     company: Mapped[str | None] = mapped_column(String(255))
     description: Mapped[str | None] = mapped_column(Text)
     comment: Mapped[str | None] = mapped_column(String(512))
+    # Suggestion from ING/Nordigen — never auto-applied, shown as hint in UI
+    suggested_type_id: Mapped[str | None] = mapped_column(String(3))
+    suggested_class_id: Mapped[str | None] = mapped_column(String(3))
+    suggested_category_id: Mapped[str | None] = mapped_column(String(10))
     is_split: Mapped[bool] = mapped_column(Boolean, default=False)
     is_recurring: Mapped[bool] = mapped_column(Boolean, default=False)
     recurring_id: Mapped[str | None] = mapped_column(

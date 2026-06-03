@@ -46,7 +46,7 @@ def get_account(user_id: str, account_id: str) -> Account | None:
 def get_account_by_iban(user_id: str, iban: str) -> Account | None:
     return db.session.execute(
         select(Account).where(Account.user_id == user_id, Account.iban == iban)
-    ).scalar_one_or_none()
+    ).scalars().first()
 
 
 def create_account(user_id: str, data: dict) -> Account:
@@ -344,7 +344,7 @@ def delete_transaction(tx: Transaction) -> None:
 
 
 def tx_to_dict(t: Transaction) -> dict:
-    return {
+    d = {
         "id": t.id,
         "account_id": t.account_id,
         "parent_id": t.parent_id,
@@ -361,3 +361,14 @@ def tx_to_dict(t: Transaction) -> dict:
         "is_recurring": t.is_recurring,
         "created_at": t.created_at.isoformat() if t.created_at else None,
     }
+    # Include suggestion fields if present (from import)
+    sug_type = getattr(t, "suggested_type_id", None)
+    sug_class = getattr(t, "suggested_class_id", None)
+    sug_cat = getattr(t, "suggested_category_id", None)
+    if sug_type or sug_class or sug_cat:
+        d["suggestion"] = {
+            "type_id": sug_type,
+            "class_id": sug_class,
+            "category_id": sug_cat,
+        }
+    return d

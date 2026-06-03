@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import financeApi from "../api/finance";
+import useFinanceStore from "../store/financeStore";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = (n) =>
@@ -11,12 +12,16 @@ const inputCls =
 
 // ── Categorize Modal ──────────────────────────────────────────────────────────
 function CategorizeModal({ tx, catalogues, onClose, onSaved }) {
+  const sug = tx.suggestion || null;
+  const hasSuggestion = sug && (sug.type_id || sug.class_id || sug.category_id);
+
   const [form, setForm] = useState({
-    type_id: tx.type_id || (tx.amount > 0 ? "T01" : "T02"),
-    class_id: tx.class_id || "C02",
-    category_id: tx.category_id || "",
-    company: tx.company || "",
-    comment: tx.comment || "",
+    // Pre-fill with suggestion if available — user must still click Save to confirm
+    type_id:     sug?.type_id     || (tx.amount > 0 ? "T01" : "T02"),
+    class_id:    sug?.class_id    || "C02",
+    category_id: sug?.category_id || "",
+    company:     tx.company || "",
+    comment:     tx.comment || "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -40,7 +45,14 @@ function CategorizeModal({ tx, catalogues, onClose, onSaved }) {
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
       <div className="bg-navy-800 border border-navy-700 rounded-2xl w-full max-w-md p-6">
-        <h2 className="text-white font-semibold text-lg mb-1">Categorizar</h2>
+        <div className="flex items-start justify-between mb-1">
+          <h2 className="text-white font-semibold text-lg">Categorizar</h2>
+          {hasSuggestion && (
+            <span className="text-xs bg-gold-500/20 text-gold-400 border border-gold-500/30 rounded-full px-2 py-0.5 font-medium">
+              ✦ Sugerencia ING
+            </span>
+          )}
+        </div>
         <p className="text-navy-400 text-sm mb-4">{tx.description}</p>
 
         <div className="flex items-center justify-between mb-5 bg-navy-900 rounded-lg px-4 py-3">
@@ -243,6 +255,7 @@ export default function Pending() {
   const [catalogues, setCatalogues] = useState(null);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null); // {type: "categorize"|"split", tx}
+  const { setPendingCount, decrementPending } = useFinanceStore();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -253,17 +266,24 @@ export default function Pending() {
       ]);
       setCatalogues(catRes.data.data);
       setPending(pendRes.data.data);
+      setPendingCount(pendRes.data.meta?.total ?? 0);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setPendingCount]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Called after a single transaction is categorized/split/deleted
+  const onActionDone = useCallback(() => {
+    decrementPending();
+    load();
+  }, [decrementPending, load]);
 
   const handleDelete = async (id) => {
     if (!confirm("¿Eliminar este movimiento?")) return;
     await financeApi.deleteTransaction(id);
-    load();
+    onActionDone();
   };
 
   if (loading || !catalogues) return <p className="text-navy-400">Cargando…</p>;
@@ -333,12 +353,12 @@ export default function Pending() {
       {modal?.type === "categorize" && (
         <CategorizeModal tx={modal.tx} catalogues={catalogues}
           onClose={() => setModal(null)}
-          onSaved={() => { setModal(null); load(); }} />
+          onSaved={() => { setModal(null); onActionDone(); }} />
       )}
       {modal?.type === "split" && (
         <SplitModal tx={modal.tx} catalogues={catalogues}
           onClose={() => setModal(null)}
-          onSaved={() => { setModal(null); load(); }} />
+          onSaved={() => { setModal(null); onActionDone(); }} />
       )}
     </div>
   );

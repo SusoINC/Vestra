@@ -6,7 +6,7 @@ from decimal import Decimal
 from io import BytesIO
 
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from ..extensions import db
 from ..models.finance import Account, Transaction
@@ -54,8 +54,35 @@ ING_MAP: dict[tuple[str, str], tuple[str, str, str | None]] = {
 }
 
 
-def _make_external_id(iban: str, op_date: str, amount: float, description: str) -> str:
-    key = f"{iban}|{op_date}|{amount}|{description[:60]}"
+def _str(val) -> str:
+    """Safely convert a pandas cell to str, treating NaN/None as empty string."""
+    if val is None:
+        return ""
+    try:
+        if pd.isna(val):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(val).strip()
+
+
+def _make_external_id(
+    iban: str,
+    op_date: str,
+    amount: float,
+    description: str,
+    categoria: str,
+    subcategoria: str,
+    comentario: str,
+    saldo: float,
+) -> str:
+    """
+    Deduplication key uses ALL ING export fields (non-categorization).
+    Two transactions with identical date+amount+description but different
+    saldo (e.g., two 3€ gas station payments on the same day) are treated
+    as distinct transactions.
+    """
+    key = f"{iban}|{op_date}|{amount}|{description}|{categoria}|{subcategoria}|{comentario}|{saldo}"
     return hashlib.md5(key.encode()).hexdigest()[:20]
 
 
@@ -95,7 +122,7 @@ def parse_ing_excel(file_bytes: bytes, user_id: str) -> dict:
         from sqlalchemy import select as _select
         matched = db.session.execute(
             _select(_Account).where(_Account.iban.like(f"%{raw_iban}"))
-        ).scalar_one_or_none()
+        ).scalars().first()
         if matched:
             raw_iban = matched.iban
         else:
@@ -113,12 +140,12 @@ def parse_ing_excel(file_bytes: bytes, user_id: str) -> dict:
         except Exception:
             continue
 
-        amount = float(row["IMPORTE (€)"] or 0)
-        description = str(row["DESCRIPCIÓN"] or "").strip()
-        categoria = str(row.get("CATEGORÍA") or "").strip()
-        subcategoria = str(row.get("SUBCATEGORÍA") or "").strip()
-        comentario = str(row.get("COMENTARIO") or "").strip()
-        saldo = float(row.get("SALDO (€)") or 0)
+        amount      = float(row["IMPORTE (€)"] or 0)
+        description = _str(row.get("DESCRIPCIÓN"))
+        categoria   = _str(row.get("CATEGORÍA"))
+        subcategoria= _str(row.get("SUBCATEGORÍA"))
+        comentario  = _str(row.get("COMENTARIO"))   # empty string if blank/NaN
+        saldo       = float(row.get("SALDO (€)") or 0)
 
         ing_key = (categoria, subcategoria)
         suggestion = ING_MAP.get(ing_key) or ING_MAP.get((categoria, None))
@@ -133,7 +160,10 @@ def parse_ing_excel(file_bytes: bytes, user_id: str) -> dict:
             "subcategoria": subcategoria,
             "comment": comentario or None,
             "saldo": saldo,
-            "external_id": _make_external_id(raw_iban, op_date.isoformat(), amount, description),
+            "external_id": _make_external_id(
+                raw_iban, op_date.isoformat(), amount, description,
+                categoria, subcategoria, comentario, saldo
+            ),
             "suggestion": {
                 "type_id": suggestion[0],
                 "class_id": suggestion[1],
@@ -179,18 +209,15 @@ def import_ing_excel(file_bytes: bytes, user_id: str) -> dict:
                 Transaction.external_id == r["external_id"],
                 Transaction.user_id == user_id,
             )
-        ).scalar_one_or_none()
+        ).scalars().first()
 
         if existing:
             skipped += 1
             continue
 
-        # Auto-apply suggestion if it gives a full categorization
-        # (type, class AND category all set)
+        # Suggestion: stored but NEVER auto-applied.
+        # The user sees it pre-filled in the categorization modal and must confirm.
         sug = r.get("suggestion")
-        fully_suggested = (
-            sug and sug["type_id"] and sug["class_id"] and sug["category_id"]
-        )
 
         tx = Transaction(
             id=str(uuid.uuid4()),
@@ -201,13 +228,17 @@ def import_ing_excel(file_bytes: bytes, user_id: str) -> dict:
             op_date=r["op_date"],
             amount=Decimal(str(r["amount"])),
             company=r["company"],
-            # Store raw ING categories as description hint
+            # ING raw categories stored as description for reference
             description=f"ING: {r['categoria']} › {r['subcategoria']}" if r["categoria"] else r["description"],
             comment=r["comment"],
-            # Apply suggestion if complete, else leave pending
-            type_id=sug["type_id"] if fully_suggested else None,
-            class_id=sug["class_id"] if fully_suggested else None,
-            category_id=sug["category_id"] if fully_suggested else None,
+            # Always pending — categorization requires explicit user action
+            type_id=None,
+            class_id=None,
+            category_id=None,
+            # Suggestion fields — pre-fill the modal but do NOT categorize
+            suggested_type_id=sug["type_id"] if sug else None,
+            suggested_class_id=sug["class_id"] if sug else None,
+            suggested_category_id=sug["category_id"] if sug else None,
             is_split=False,
             is_recurring=False,
         )
