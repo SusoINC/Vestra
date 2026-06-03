@@ -5,10 +5,33 @@ from decimal import Decimal
 
 from datetime import date as date_type
 
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, and_
 
 from ..extensions import db
 from ..models.finance import Account, Transaction, TxCategory, TxClass, TxType
+
+# ── Categorization state ────────────────────────────────────────────────────
+# Una transacción está "hecha" (no pendiente) si:
+#   - tiene category_id, O
+#   - es una Transferencia (type_id = 'T03') — el usuario las marca solo con el tipo
+TRANSFER_TYPE = "T03"
+
+
+def _is_done():
+    """Condición SQL: transacción categorizada o transferencia."""
+    return or_(Transaction.category_id != None, Transaction.type_id == TRANSFER_TYPE)
+
+
+def _is_pending():
+    """
+    Condición SQL: pendiente de categorizar.
+    Sin categoría, no transferencia (T03), y no marcado como histórico (deprecated).
+    """
+    return and_(
+        Transaction.category_id == None,
+        Transaction.type_id.is_distinct_from(TRANSFER_TYPE),
+        Transaction.deprecated == False,
+    )
 
 
 # ── Catalogues ─────────────────────────────────────────────────────────────────
@@ -98,7 +121,7 @@ def list_transactions(user_id: str, filters: dict) -> dict:
         .where(
             Transaction.user_id == user_id,
             Transaction.is_split == False,       # exclude split parents
-            Transaction.category_id != None,     # only categorized
+            _is_done(),                          # categorizada o transferencia
         )
     )
     if filters.get("account_id"):
@@ -134,14 +157,14 @@ def list_transactions(user_id: str, filters: dict) -> dict:
 
 
 def list_pending(user_id: str) -> list[Transaction]:
-    """Transactions awaiting categorization."""
+    """Transactions awaiting categorization (sin categoría y no transferencia)."""
     return db.session.execute(
         select(Transaction)
         .where(
             Transaction.user_id == user_id,
-            Transaction.category_id == None,
             Transaction.is_split == False,
             Transaction.parent_id == None,
+            _is_pending(),
         )
         .order_by(Transaction.op_date.desc())
     ).scalars().all()
@@ -151,9 +174,9 @@ def count_pending(user_id: str) -> int:
     return db.session.execute(
         select(func.count()).where(
             Transaction.user_id == user_id,
-            Transaction.category_id == None,
             Transaction.is_split == False,
             Transaction.parent_id == None,
+            _is_pending(),
         )
     ).scalar()
 
@@ -183,9 +206,14 @@ def list_all_transactions(user_id: str, filters: dict) -> dict:
     # Status filter
     status = filters.get("status", "all")
     if status == "pending":
-        q = q.where(Transaction.category_id == None, Transaction.is_split == False)
+        q = q.where(Transaction.is_split == False, _is_pending())
     elif status == "categorized":
-        q = q.where(Transaction.category_id != None)
+        q = q.where(_is_done())
+    elif status == "deprecated":
+        q = q.where(Transaction.deprecated == True)
+    elif status == "active":
+        # Todo excepto los históricos deprecated
+        q = q.where(Transaction.deprecated == False)
 
     if filters.get("account_id"):
         q = q.where(Transaction.account_id == filters["account_id"])
@@ -237,18 +265,20 @@ def update_transaction(tx: Transaction, data: dict) -> Transaction:
         if field in data and data[field] is not None:
             setattr(tx, field, data[field])
 
-    # Categorisation fields — allow clearing back to pending
+    # Categorisation fields — each applied independently ('' / None clears it).
+    # This supports both real categories and transfers (type T03 sin categoría).
+    if "type_id" in data:
+        tx.type_id = data["type_id"] or None
+    if "class_id" in data:
+        tx.class_id = data["class_id"] or None
     if "category_id" in data:
-        if data["category_id"] in (None, ""):
-            tx.category_id = None
-            tx.type_id = None
-            tx.class_id = None
-        else:
-            tx.category_id = data["category_id"]
-            if "type_id" in data:
-                tx.type_id = data["type_id"]
-            if "class_id" in data:
-                tx.class_id = data["class_id"]
+        tx.category_id = data["category_id"] or None
+
+    # Si el movimiento queda "hecho" (con categoría o es transferencia T03),
+    # deja de ser histórico → se quita el flag deprecated automáticamente.
+    is_done = bool(tx.category_id) or tx.type_id == TRANSFER_TYPE
+    if is_done:
+        tx.deprecated = False
 
     db.session.commit()
     return tx
@@ -287,6 +317,7 @@ def categorize_transaction(tx: Transaction, data: dict) -> Transaction:
         tx.company = data["company"]
     if "comment" in data:
         tx.comment = data["comment"]
+    tx.deprecated = False  # categorizar quita el flag histórico
     db.session.commit()
     return tx
 
@@ -359,6 +390,7 @@ def tx_to_dict(t: Transaction) -> dict:
         "comment": t.comment,
         "is_split": t.is_split,
         "is_recurring": t.is_recurring,
+        "deprecated": getattr(t, "deprecated", False),
         "created_at": t.created_at.isoformat() if t.created_at else None,
     }
     # Include suggestion fields if present (from import)

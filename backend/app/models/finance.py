@@ -127,6 +127,8 @@ class Transaction(db.Model):
     suggested_category_id: Mapped[str | None] = mapped_column(String(10))
     is_split: Mapped[bool] = mapped_column(Boolean, default=False)
     is_recurring: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Movimiento histórico marcado para excluir de la cola de categorización
+    deprecated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     recurring_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("recurring_rules.id")
     )

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import financeApi from "../api/finance";
+import useFinanceStore from "../store/financeStore";
 
 const fmt = (n) =>
   Number(n).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
@@ -16,6 +17,10 @@ const selectCls =
 function StatusBadge({ tx }) {
   if (tx.is_split)
     return <span className="text-xs px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300">Split</span>;
+  if (tx.type_id === "T03")
+    return <span className="text-xs px-2 py-0.5 rounded-full bg-sky-900/40 text-sky-300">Transferencia</span>;
+  if (tx.deprecated)
+    return <span className="text-xs px-2 py-0.5 rounded-full bg-navy-700 text-navy-400">Histórico</span>;
   if (!tx.category_id)
     return <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-900/40 text-yellow-300">Pendiente</span>;
   return <span className="text-xs px-2 py-0.5 rounded-full bg-green-900/40 text-green-400">Categorizado</span>;
@@ -180,6 +185,7 @@ const TABS = [
   { value: "all",         label: "Todos" },
   { value: "pending",     label: "Pendientes" },
   { value: "categorized", label: "Categorizados" },
+  { value: "deprecated",  label: "Históricos" },
 ];
 
 export default function EditTransactions() {
@@ -196,9 +202,17 @@ export default function EditTransactions() {
   });
   const searchRef = useRef();
   const debounceRef = useRef();
+  const setPendingCount = useFinanceStore((s) => s.setPendingCount);
 
   const catMap = Object.fromEntries((catalogues?.categories || []).map((c) => [c.id, c]));
   const typeMap = Object.fromEntries((catalogues?.types    || []).map((t) => [t.id, t]));
+
+  // Refresca el badge "Por categorizar" del menú tras cualquier cambio
+  const refreshBadge = useCallback(() => {
+    financeApi.getPending()
+      .then((r) => setPendingCount(r.data.meta?.total ?? 0))
+      .catch(() => {});
+  }, [setPendingCount]);
 
   const load = useCallback(async (currentFilters) => {
     setLoading(true);
@@ -243,12 +257,14 @@ export default function EditTransactions() {
     if (!confirm("¿Eliminar este movimiento?")) return;
     await financeApi.deleteTransaction(id);
     load(filters);
+    refreshBadge();
   };
 
   const handleUnsplit = async (id) => {
     if (!confirm("¿Fusionar los splits y volver a estado pendiente?")) return;
     await financeApi.unsplit(id);
     load(filters);
+    refreshBadge();
   };
 
   const toggleExpand = (id) =>
@@ -472,7 +488,7 @@ export default function EditTransactions() {
           tx={editModal}
           catalogues={catalogues}
           onClose={() => setEditModal(null)}
-          onSaved={() => { setEditModal(null); load(filters); }}
+          onSaved={() => { setEditModal(null); load(filters); refreshBadge(); }}
         />
       )}
     </div>
