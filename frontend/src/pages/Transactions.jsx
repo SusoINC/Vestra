@@ -37,6 +37,7 @@ export default function Transactions() {
 
   const catMap = Object.fromEntries((catalogues?.categories || []).map((c) => [c.id, c]));
   const typeMap = Object.fromEntries((catalogues?.types || []).map((t) => [t.id, t]));
+  const subcatMap = Object.fromEntries((catalogues?.subcategories || []).map((s) => [s.id, s]));
   const accMap = Object.fromEntries(accounts.map((a) => [a.id, a]));
 
   const selectCls =
@@ -112,6 +113,7 @@ export default function Transactions() {
               <tbody>
                 {data.items.map((tx, i) => {
                   const cat = catMap[tx.category_id];
+                  const subcat = subcatMap[tx.subcategory_id];
                   const type = typeMap[tx.type_id];
                   const acc = accMap[tx.account_id];
                   return (
@@ -129,10 +131,15 @@ export default function Transactions() {
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell">
                         {cat ? (
-                          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full"
-                            style={{ backgroundColor: `${cat.color}20`, color: cat.color }}>
-                            {cat.icon} {cat.label}
-                          </span>
+                          <div className="flex flex-col gap-0.5 items-start">
+                            <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full"
+                              style={{ backgroundColor: `${cat.color}20`, color: cat.color }}>
+                              {cat.icon} {cat.label}
+                            </span>
+                            {subcat && (
+                              <span className="text-navy-400 text-xs pl-1">› {subcat.label}</span>
+                            )}
+                          </div>
                         ) : "—"}
                       </td>
                       <td className="px-4 py-3 text-navy-400 text-xs hidden md:table-cell">

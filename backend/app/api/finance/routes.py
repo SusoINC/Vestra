@@ -13,7 +13,8 @@ from . import bp
 @bp.get("/catalogues")
 @jwt_required()
 def catalogues():
-    return ok(finance_service.get_catalogues())
+    user = get_current_user()
+    return ok(finance_service.get_catalogues(user.id))
 
 
 # ── Accounts ───────────────────────────────────────────────────────────────────

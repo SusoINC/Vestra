@@ -88,6 +88,22 @@ class TxCategory(db.Model):
     tx_class: Mapped["TxClass"] = relationship("TxClass", back_populates="categories")
 
 
+class TxSubcategory(db.Model):
+    __tablename__ = "tx_subcategory"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    category_id: Mapped[str] = mapped_column(
+        String(10), ForeignKey("tx_category.id"), nullable=False
+    )
+    label: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
 class RecurringRule(db.Model):
     __tablename__ = "recurring_rules"
 
@@ -113,6 +129,9 @@ class Transaction(db.Model):
     type_id: Mapped[str | None] = mapped_column(String(3), ForeignKey("tx_type.id"), nullable=True)
     class_id: Mapped[str | None] = mapped_column(String(3), ForeignKey("tx_class.id"), nullable=True)
     category_id: Mapped[str | None] = mapped_column(String(10), ForeignKey("tx_category.id"))
+    subcategory_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("tx_subcategory.id")
+    )
     source: Mapped[str] = mapped_column(String(32))  # manual/import_excel/nordigen
     external_id: Mapped[str | None] = mapped_column(String(255))
     op_date: Mapped[date_type] = mapped_column(Date, nullable=False)

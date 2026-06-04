@@ -28,6 +28,10 @@ function StatusBadge({ tx }) {
 
 // ── Edit Modal ────────────────────────────────────────────────────────────────
 function EditModal({ tx, catalogues, onClose, onSaved }) {
+  // Label inicial de la subcategoría (mapea id → label desde el catálogo)
+  const initialSubLabel =
+    (catalogues.subcategories || []).find((s) => s.id === tx.subcategory_id)?.label || "";
+
   const [form, setForm] = useState({
     op_date:     tx.op_date || "",
     amount:      tx.amount ?? "",
@@ -37,12 +41,15 @@ function EditModal({ tx, catalogues, onClose, onSaved }) {
     type_id:     tx.type_id || "",
     class_id:    tx.class_id || "",
     category_id: tx.category_id || "",
+    subcategory_label: initialSubLabel,
   });
   const [saving, setSaving] = useState(false);
 
   const filteredCats = catalogues.categories.filter(
     (c) => !form.class_id || c.class_id === form.class_id
   );
+  const subcatOptions = (catalogues.subcategories || [])
+    .filter((s) => s.category_id === form.category_id);
 
   const onSave = async () => {
     setSaving(true);
@@ -86,7 +93,15 @@ function EditModal({ tx, catalogues, onClose, onSaved }) {
             {field("Fecha", "op_date", "date")}
             {field("Importe (€)", "amount", "number", { step: "0.01" })}
           </div>
-          {field("Empresa / Comercio", "company", "text", { placeholder: "Amazon, Mercadona…" })}
+          <div>
+            <label className="block text-navy-400 text-xs font-medium mb-1">Empresa / Comercio</label>
+            <input list="company-options-edit" value={form.company}
+              onChange={(e) => setForm({ ...form, company: e.target.value })}
+              className={inputCls} placeholder="Amazon, Mercadona…" autoComplete="off" />
+            <datalist id="company-options-edit">
+              {(catalogues.companies || []).map((c) => <option key={c} value={c} />)}
+            </datalist>
+          </div>
           {field("Descripción (ING)", "description", "text")}
           {field("Comentario / nota", "comment", "text", { placeholder: "Nota libre" })}
 
@@ -124,13 +139,27 @@ function EditModal({ tx, catalogues, onClose, onSaved }) {
           <div>
             <label className="block text-navy-400 text-xs font-medium mb-1">Categoría</label>
             <select value={form.category_id}
-              onChange={(e) => setForm({ ...form, category_id: e.target.value })}
+              onChange={(e) => setForm({ ...form, category_id: e.target.value, subcategory_label: "" })}
               className={selectCls + " w-full"}>
               <option value="">— Sin categoría —</option>
               {filteredCats.map((c) => (
                 <option key={c.id} value={c.id}>{c.icon} {c.label}</option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="block text-navy-400 text-xs font-medium mb-1">Subcategoría</label>
+            <input
+              list="subcat-options-edit"
+              value={form.subcategory_label}
+              onChange={(e) => setForm({ ...form, subcategory_label: e.target.value })}
+              disabled={!form.category_id}
+              className={inputCls + " disabled:opacity-40"}
+              placeholder={form.category_id ? "Ej: Gasoil… (o escribe una nueva)" : "Elige categoría primero"}
+            />
+            <datalist id="subcat-options-edit">
+              {subcatOptions.map((s) => <option key={s.id} value={s.label} />)}
+            </datalist>
           </div>
         </div>
 
@@ -206,6 +235,7 @@ export default function EditTransactions() {
 
   const catMap = Object.fromEntries((catalogues?.categories || []).map((c) => [c.id, c]));
   const typeMap = Object.fromEntries((catalogues?.types    || []).map((t) => [t.id, t]));
+  const subcatMap = Object.fromEntries((catalogues?.subcategories || []).map((s) => [s.id, s]));
 
   // Refresca el badge "Por categorizar" del menú tras cualquier cambio
   const refreshBadge = useCallback(() => {
@@ -213,6 +243,13 @@ export default function EditTransactions() {
       .then((r) => setPendingCount(r.data.meta?.total ?? 0))
       .catch(() => {});
   }, [setPendingCount]);
+
+  // Recarga el catálogo (empresas/subcategorías nuevas se reflejan al instante)
+  const refreshCatalogues = useCallback(() => {
+    financeApi.getCatalogues()
+      .then((r) => setCatalogues(r.data.data))
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(async (currentFilters) => {
     setLoading(true);
@@ -362,6 +399,7 @@ export default function EditTransactions() {
               <tbody>
                 {data.items.map((tx, i) => {
                   const cat = catMap[tx.category_id];
+                  const subcat = subcatMap[tx.subcategory_id];
                   const type = typeMap[tx.type_id];
                   const isOpen = expanded[tx.id];
                   return (
@@ -397,10 +435,15 @@ export default function EditTransactions() {
 
                         <td className="px-3 py-3 hidden md:table-cell">
                           {cat ? (
-                            <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full"
-                              style={{ backgroundColor: `${cat.color}20`, color: cat.color }}>
-                              {cat.icon} {cat.label}
-                            </span>
+                            <div className="flex flex-col gap-0.5 items-start">
+                              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full"
+                                style={{ backgroundColor: `${cat.color}20`, color: cat.color }}>
+                                {cat.icon} {cat.label}
+                              </span>
+                              {subcat && (
+                                <span className="text-navy-400 text-xs pl-1">› {subcat.label}</span>
+                              )}
+                            </div>
                           ) : "—"}
                         </td>
 
@@ -488,7 +531,7 @@ export default function EditTransactions() {
           tx={editModal}
           catalogues={catalogues}
           onClose={() => setEditModal(null)}
-          onSaved={() => { setEditModal(null); load(filters); refreshBadge(); }}
+          onSaved={() => { setEditModal(null); load(filters); refreshBadge(); refreshCatalogues(); }}
         />
       )}
     </div>

@@ -8,7 +8,9 @@ from datetime import date as date_type
 from sqlalchemy import select, func, or_, and_
 
 from ..extensions import db
-from ..models.finance import Account, Transaction, TxCategory, TxClass, TxType
+from ..models.finance import (
+    Account, Transaction, TxCategory, TxClass, TxType, TxSubcategory,
+)
 
 # ── Categorization state ────────────────────────────────────────────────────
 # Una transacción está "hecha" (no pendiente) si:
@@ -36,10 +38,21 @@ def _is_pending():
 
 # ── Catalogues ─────────────────────────────────────────────────────────────────
 
-def get_catalogues() -> dict:
+def get_catalogues(user_id: str) -> dict:
     types = db.session.execute(select(TxType)).scalars().all()
     classes = db.session.execute(select(TxClass)).scalars().all()
     categories = db.session.execute(select(TxCategory)).scalars().all()
+    subcats = db.session.execute(
+        select(TxSubcategory).where(TxSubcategory.user_id == user_id)
+        .order_by(TxSubcategory.label)
+    ).scalars().all()
+    # Empresas/comercios distintos del usuario (para autocompletar)
+    companies = db.session.execute(
+        select(Transaction.company)
+        .where(Transaction.user_id == user_id, Transaction.company != None,
+               Transaction.company != "")
+        .distinct().order_by(Transaction.company)
+    ).scalars().all()
     return {
         "types": [{"id": t.id, "label": t.label} for t in types],
         "classes": [{"id": c.id, "label": c.label} for c in classes],
@@ -48,7 +61,44 @@ def get_catalogues() -> dict:
              "icon": c.icon, "color": c.color}
             for c in categories
         ],
+        "subcategories": [
+            {"id": s.id, "category_id": s.category_id, "label": s.label}
+            for s in subcats
+        ],
+        "companies": list(companies),
     }
+
+
+# ── Subcategories ──────────────────────────────────────────────────────────────
+
+def get_or_create_subcategory(user_id: str, category_id: str, label: str) -> str | None:
+    """
+    Resuelve (o crea) una subcategoría para una categoría dada.
+    Búsqueda case-insensitive; devuelve el id, o None si label vacío/sin categoría.
+    """
+    label = (label or "").strip()
+    if not label or not category_id:
+        return None
+
+    existing = db.session.execute(
+        select(TxSubcategory).where(
+            TxSubcategory.user_id == user_id,
+            TxSubcategory.category_id == category_id,
+            func.lower(TxSubcategory.label) == label.lower(),
+        )
+    ).scalars().first()
+    if existing:
+        return existing.id
+
+    sub = TxSubcategory(
+        id=str(uuid.uuid4()),
+        user_id=user_id,
+        category_id=category_id,
+        label=label,
+    )
+    db.session.add(sub)
+    db.session.flush()  # get id without full commit
+    return sub.id
 
 
 # ── Accounts ───────────────────────────────────────────────────────────────────
@@ -142,7 +192,8 @@ def list_transactions(user_id: str, filters: dict) -> dict:
     page = int(filters.get("page", 1))
     per_page = int(filters.get("per_page", 50))
     items = db.session.execute(
-        q.order_by(Transaction.op_date.desc())
+        q.order_by(Transaction.op_date.desc(),
+                   Transaction.created_at.desc(), Transaction.id)
         .offset((page - 1) * per_page)
         .limit(per_page)
     ).scalars().all()
@@ -166,7 +217,8 @@ def list_pending(user_id: str) -> list[Transaction]:
             Transaction.parent_id == None,
             _is_pending(),
         )
-        .order_by(Transaction.op_date.desc())
+        .order_by(Transaction.op_date.desc(),
+                  Transaction.created_at.desc(), Transaction.id)
     ).scalars().all()
 
 
@@ -233,7 +285,8 @@ def list_all_transactions(user_id: str, filters: dict) -> dict:
     page = int(filters.get("page", 1))
     per_page = int(filters.get("per_page", 50))
     items = db.session.execute(
-        q.order_by(Transaction.op_date.desc(), Transaction.created_at.desc())
+        q.order_by(Transaction.op_date.desc(),
+                   Transaction.created_at.desc(), Transaction.id)
         .offset((page - 1) * per_page)
         .limit(per_page)
     ).scalars().all()
@@ -273,6 +326,15 @@ def update_transaction(tx: Transaction, data: dict) -> Transaction:
         tx.class_id = data["class_id"] or None
     if "category_id" in data:
         tx.category_id = data["category_id"] or None
+
+    # Subcategoría: si cambia la categoría o se limpia, recalcular.
+    if "subcategory_label" in data:
+        tx.subcategory_id = get_or_create_subcategory(
+            tx.user_id, tx.category_id, data.get("subcategory_label")
+        )
+    # Si ya no hay categoría, no puede haber subcategoría
+    if not tx.category_id:
+        tx.subcategory_id = None
 
     # Si el movimiento queda "hecho" (con categoría o es transferencia T03),
     # deja de ser histórico → se quita el flag deprecated automáticamente.
@@ -317,6 +379,11 @@ def categorize_transaction(tx: Transaction, data: dict) -> Transaction:
         tx.company = data["company"]
     if "comment" in data:
         tx.comment = data["comment"]
+    # Subcategoría: find-or-create dentro de la categoría asignada
+    if "subcategory_label" in data:
+        tx.subcategory_id = get_or_create_subcategory(
+            tx.user_id, tx.category_id, data.get("subcategory_label")
+        )
     tx.deprecated = False  # categorizar quita el flag histórico
     db.session.commit()
     return tx
@@ -382,6 +449,7 @@ def tx_to_dict(t: Transaction) -> dict:
         "type_id": t.type_id,
         "class_id": t.class_id,
         "category_id": t.category_id,
+        "subcategory_id": t.subcategory_id,
         "source": t.source,
         "op_date": t.op_date.isoformat() if t.op_date else None,
         "amount": float(t.amount),

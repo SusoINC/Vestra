@@ -20,6 +20,7 @@ function CategorizeModal({ tx, catalogues, onClose, onSaved }) {
     type_id:     sug?.type_id     || (tx.amount > 0 ? "T01" : "T02"),
     class_id:    sug?.class_id    || "C02",
     category_id: sug?.category_id || "",
+    subcategory_label: "",
     company:     tx.company || "",
     comment:     tx.comment || "",
   });
@@ -28,6 +29,9 @@ function CategorizeModal({ tx, catalogues, onClose, onSaved }) {
   const filteredCats = catalogues.categories.filter(
     (c) => !form.class_id || c.class_id === form.class_id
   );
+  // Subcategorías de la categoría seleccionada (para el datalist)
+  const subcatOptions = (catalogues.subcategories || [])
+    .filter((s) => s.category_id === form.category_id);
 
   const onSave = async () => {
     if (!form.type_id || !form.class_id || !form.category_id) return;
@@ -90,7 +94,7 @@ function CategorizeModal({ tx, catalogues, onClose, onSaved }) {
           <div>
             <label className="block text-navy-300 text-xs font-medium mb-1">Categoría *</label>
             <select value={form.category_id}
-              onChange={(e) => setForm({ ...form, category_id: e.target.value })}
+              onChange={(e) => setForm({ ...form, category_id: e.target.value, subcategory_label: "" })}
               className={inputCls}>
               <option value="">— Categoría —</option>
               {filteredCats.map((c) => (
@@ -100,9 +104,31 @@ function CategorizeModal({ tx, catalogues, onClose, onSaved }) {
           </div>
 
           <div>
+            <label className="block text-navy-300 text-xs font-medium mb-1">
+              Subcategoría
+              {!form.category_id && <span className="text-navy-600"> (elige categoría primero)</span>}
+            </label>
+            <input
+              list="subcat-options-pending"
+              value={form.subcategory_label}
+              onChange={(e) => setForm({ ...form, subcategory_label: e.target.value })}
+              disabled={!form.category_id}
+              className={inputCls + " disabled:opacity-40"}
+              placeholder="Ej: Gasoil, Parking… (o escribe una nueva)"
+            />
+            <datalist id="subcat-options-pending">
+              {subcatOptions.map((s) => <option key={s.id} value={s.label} />)}
+            </datalist>
+          </div>
+
+          <div>
             <label className="block text-navy-300 text-xs font-medium mb-1">Empresa / Comercio</label>
-            <input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })}
-              className={inputCls} placeholder="Amazon, Carrefour…" />
+            <input list="company-options-pending" value={form.company}
+              onChange={(e) => setForm({ ...form, company: e.target.value })}
+              className={inputCls} placeholder="Amazon, Carrefour…" autoComplete="off" />
+            <datalist id="company-options-pending">
+              {(catalogues.companies || []).map((c) => <option key={c} value={c} />)}
+            </datalist>
           </div>
 
           <div>
