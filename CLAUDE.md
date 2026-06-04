@@ -101,7 +101,7 @@ ssh vestraapp  # acceso directo a la app
 | #6 | Proyectos DIY | ⏳ Pendiente |
 | #7 | Integración GoCardless/Nordigen (open banking ING real-time) | ⏳ Pendiente |
 | #8 | Export PDF con WeasyPrint | ⏳ Pendiente |
-| Migration | Importar datos legacy (MariaDB dump, 4579 tx) | ⏳ Pendiente |
+| Migration | Importar datos legacy (MariaDB dump, 4578 tx) | ✅ Completo |
 
 ---
 
@@ -109,15 +109,25 @@ ssh vestraapp  # acceso directo a la app
 
 ### Flujo de transacciones financieras
 ```
-Import Excel ING
+Import Excel ING / Migración legacy
     ↓
 transactions (pendientes: type_id=NULL, class_id=NULL, category_id=NULL)
 suggested_type_id / suggested_class_id / suggested_category_id  ← sugerencia ING, nunca auto-aplicada
     ↓ usuario categoriza manualmente (modal con pre-relleno de sugerencia)
-transactions (categorizadas: todos los campos rellenos)
-    ↓
-Reporting: WHERE is_split=FALSE AND category_id IS NOT NULL
+transactions (categorizadas)
 ```
+
+### Estados de una transacción (mutuamente excluyentes)
+- **Categorizado**: `category_id IS NOT NULL`
+- **Transferencia**: `type_id='T03'` (categorizado sin necesitar categoría — el usuario
+  marca las transferencias entre cuentas solo con el tipo, sin más info)
+- **Histórico (deprecated)**: `deprecated=TRUE` — movimientos viejos sin categorizar
+  (anteriores a 2026) marcados para excluirlos de la cola. NO se borran, se ven en
+  su propio tab. Categorizar uno (categoría o T03) limpia `deprecated` automáticamente.
+- **Pendiente (cola)**: sin categoría, no T03, no deprecated, no split
+
+Helpers en `finance_service.py`: `_is_done()` / `_is_pending()`.
+Reporting siempre: `WHERE is_split=FALSE AND (category_id IS NOT NULL OR type_id='T03')`
 
 ### Splits
 - Padre: `is_split=True`, sin category_id → NO aparece en reporting
@@ -144,6 +154,7 @@ Re-importar el mismo Excel → 0 nuevos (todos skipped). Seguro.
 0001 → Esquema inicial (26 tablas)
 0002 → nullable type_id/class_id + seed catálogos (5 tipos, 4 clases, 35 categorías)
 0003 → Campos suggested_type/class/category_id en transactions
+0004 → Flag deprecated en transactions (excluir históricos de la cola)
 ```
 Para correr: `ssh vestraapp` → `cd /opt/vestra/backend` → `export $(grep -v '^#' .env | xargs)` → `/opt/vestra/venv/bin/flask db upgrade`
 
@@ -159,9 +170,15 @@ Para correr: `ssh vestraapp` → `cd /opt/vestra/backend` → `export $(grep -v 
 
 ---
 
-## Datos legacy (pendiente migrar)
-- App v0 en Raspberry Pi (MariaDB/phpMyAdmin)
-- 4.579 transacciones (2020–2026), solo cuenta E01 (ING ES4214650100961720814434)
-- Script de migración: `backend/scripts/migrate_legacy.py`
-- Mapeo: Entity→accounts, Type→tx_type, Class→tx_class, Category→tx_category, Detail→comment
-- Dump disponible en: `/Users/jmsantiago/Downloads/legacy_dump.sql`
+## Datos legacy (MIGRADO ✅)
+- App v0 en Raspberry Pi (MariaDB/phpMyAdmin), DB `Finance`
+- Migrado a `susoinc@gmail.com`: 4.578 tx (2020–2026), 98 ops inversión, 4 carteras,
+  12 símbolos, 3 plataformas, 9.599 precios, 230 presupuestos
+- Estado tras migración: 3.121 categorizadas, 256 transferencias, 1.095 históricos, 106 cola
+- Script: `backend/scripts/migrate_legacy.py` (parser SQL robusto, idempotente)
+  Uso: `python scripts/migrate_legacy.py --dump /tmp/legacy_dump.sql --user susoinc@gmail.com`
+- Mapeo: Entity→accounts (por sufijo IBAN), Type→tx_type, Class→tx_class,
+  Category→tx_category, Detail/Comment/FreeText→comment merged
+- Cutoff deprecated: `DEPRECATED_BEFORE='2026-01-01'` (constante en el script)
+- Dump local: `/Users/jmsantiago/Downloads/legacy_dump.sql` (NO subir a git; datos personales)
+- IMPORTANTE: ejecutar solo sobre el usuario real; carteras usan PK global (W01-W04)

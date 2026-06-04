@@ -143,24 +143,30 @@ Vestra/
 ### Flujo de estados de una transacción
 
 ```
-BANCO (Excel ING o Nordigen)
+BANCO (Excel ING / Migración legacy / Nordigen)
     │
     ▼
-Transaction creada
-  category_id = NULL        ← PENDIENTE
-  type_id = NULL
-  class_id = NULL
-  suggested_*_id = X        ← sugerencia guardada, nunca auto-aplicada
+Transaction creada (pendiente)
+  category_id = NULL · type_id = NULL · class_id = NULL
+  suggested_*_id = X        ← sugerencia ING, nunca auto-aplicada
     │
-    ├── [Categorizar] → usuario elige tipo/clase/categoría → CATEGORIZADA
-    │       category_id = 'restaurantes', type_id = 'T02', class_id = 'C02'
-    │
-    └── [Split] → usuario divide en N partes
-            Padre: is_split=True  ← invisible en reporting
-            Hijos: is_split=False, cada uno con su categoría ← en reporting
-
-REPORTING: WHERE is_split=FALSE AND category_id IS NOT NULL
+    ├── [Categorizar] → categoría real → CATEGORIZADO
+    ├── [Transferencia] → type_id='T03' sin categoría → TRANSFERENCIA (= hecho)
+    ├── [Split] → padre is_split=True (oculto) + hijos categorizados
+    └── (viejo, pre-2026, sin tocar) → deprecated=TRUE → HISTÓRICO (fuera de cola)
 ```
+
+**Los 4 estados (mutuamente excluyentes):**
+
+| Estado | Condición | En cola de categorizar |
+|---|---|---|
+| Categorizado | `category_id IS NOT NULL` | No |
+| Transferencia | `type_id = 'T03'` | No (no necesita categoría) |
+| Histórico | `deprecated = TRUE` | No (excluido a propósito) |
+| Pendiente | sin categoría, no T03, no deprecated | **Sí** |
+
+- Categorizar un histórico (categoría o T03) limpia `deprecated` → sale del tab Históricos.
+- **Reporting:** `WHERE is_split=FALSE AND (category_id IS NOT NULL OR type_id='T03')`
 
 ---
 
@@ -250,13 +256,21 @@ El token de acceso caduca en 15 minutos. El interceptor de Axios lo renueva auto
 - Mientras haya restante sin asignar (en amarillo), no puedes guardar
 
 ### 6.4 Ver y editar movimientos
-- **Transacciones** — solo los categorizados, con filtros por cuenta/tipo/categoría/fecha
-- **Editar movimientos** — TODOS los movimientos (pendientes + categorizados)
+- **Transacciones** — solo los "hechos" (categorizados + transferencias), con filtros por cuenta/tipo/categoría/fecha
+- **Editar movimientos** — TODOS los movimientos
   - Barra de búsqueda: busca en empresa, descripción y comentario
-  - Tabs: Todos / Pendientes / Categorizados
+  - Tabs: **Todos / Pendientes / Categorizados / Históricos**
   - Botón **Editar** en cada fila: cambia cualquier campo, incluida la categorización
+  - Categorizar un **Histórico** (con categoría o marcándolo Transferencia) lo saca del
+    tab Históricos automáticamente → así limpias el histórico poco a poco
   - Si vacías la categoría → el movimiento vuelve a estado pendiente
   - Splits: el ▶ expande los hijos; botón **Fusionar** deshace el split
+
+### 6.5 Migración de datos legacy (one-shot, ya ejecutado)
+- Script `backend/scripts/migrate_legacy.py` importó los 6 años de la app v0 (Raspberry Pi)
+- 4.578 transacciones + inversiones + presupuestos + precios de mercado
+- Los movimientos sin categorizar anteriores a 2026 se marcaron como **Históricos**
+  (deprecated) para no saturar la cola — quedan 106 pendientes (los de 2026)
 
 ---
 
@@ -340,10 +354,6 @@ tail -f /var/log/nginx/error.log   # errores de Nginx
 ### #8 — Export PDF
 - Informes mensuales con WeasyPrint
 
-### Migración legacy
-- Ejecutar `scripts/migrate_legacy.py` con el dump de la Raspberry Pi
-- 4.579 transacciones (2020–2026), 99 operaciones de inversión, presupuestos históricos
-
 ---
 
 ## 9. Historial de cambios
@@ -353,3 +363,4 @@ tail -f /var/log/nginx/error.log   # errores de Nginx
 | Jun 2026 | 0.1 | Infraestructura base: modelos, migración, auth |
 | Jun 2026 | 0.2 | Auth completo: login/register/refresh/me + frontend Login/Register |
 | Jun 2026 | 0.3a | Finance: import Excel ING, categorización, splits, edit transactions |
+| Jun 2026 | 0.3a | Migración legacy (4.578 tx, 6 años) + flag deprecated + lógica transfers (T03) |
