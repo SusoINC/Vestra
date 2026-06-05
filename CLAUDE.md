@@ -140,6 +140,15 @@ Reporting siempre: `WHERE is_split=FALSE AND (category_id IS NOT NULL OR type_id
 - `tx_class`: C01=Fijo, C02=Variable, C03=Especial, C04=Deuda
 - `tx_category`: 35 categorías del legacy (IDs numéricos '1'–'35')
 
+### Subcategorías (tabla tx_subcategory, migración 0005)
+- Por usuario y categoría: `(user_id, category_id, label)`. Ej: Car → Gasoil, Parking…
+- `transactions.subcategory_id` (nullable, FK)
+- Combobox editable: el usuario elige una existente o crea nueva al vuelo
+  (`get_or_create_subcategory` en finance_service, case-insensitive)
+- Pobladas desde el legacy (campo Detail) con `scripts/seed_subcategories.py`:
+  limpieza de typos/acentos/mayúsculas, solo las usadas ≥2 veces, backfill de históricos
+- El endpoint `/catalogues` devuelve también `companies` (distintas, para autocompletar)
+
 ---
 
 ## Deduplicación de imports Excel
@@ -155,6 +164,7 @@ Re-importar el mismo Excel → 0 nuevos (todos skipped). Seguro.
 0002 → nullable type_id/class_id + seed catálogos (5 tipos, 4 clases, 35 categorías)
 0003 → Campos suggested_type/class/category_id en transactions
 0004 → Flag deprecated en transactions (excluir históricos de la cola)
+0005 → Tabla tx_subcategory + transactions.subcategory_id
 ```
 Para correr: `ssh vestraapp` → `cd /opt/vestra/backend` → `export $(grep -v '^#' .env | xargs)` → `/opt/vestra/venv/bin/flask db upgrade`
 

@@ -85,11 +85,14 @@ Vestra/
 │   │       └── responses.py ← ok(), created(), error()
 │   ├── migrations/
 │   │   └── versions/
-│   │       ├── 0001_initial_schema.py   ← 26 tablas
+│   │       ├── 0001_initial_schema.py    ← 26 tablas
 │   │       ├── 0002_seed_and_nullable.py ← catálogos + nullable type/class
-│   │       └── 0003_suggestion_fields.py ← campos de sugerencia ING
+│   │       ├── 0003_suggestion_fields.py ← campos de sugerencia ING
+│   │       ├── 0004_deprecated_flag.py   ← flag deprecated (históricos)
+│   │       └── 0005_subcategories.py     ← tx_subcategory + subcategory_id
 │   ├── scripts/
-│   │   └── migrate_legacy.py ← migración one-shot desde MariaDB legacy
+│   │   ├── migrate_legacy.py      ← migración one-shot desde MariaDB legacy
+│   │   └── seed_subcategories.py  ← catálogo de subcategorías + backfill
 │   ├── requirements.txt
 │   ├── run.py
 │   └── .env.example
@@ -127,6 +130,7 @@ Vestra/
 | `tx_type` | Catálogo: T01=Ingreso, T02=Gasto, T03=Transferencia, T04=Inversión, T05=Deuda |
 | `tx_class` | Catálogo: C01=Fijo, C02=Variable, C03=Especial, C04=Deuda |
 | `tx_category` | 35 categorías (Salary, Car, Home, Groceries, Restaurant…) |
+| `tx_subcategory` | Subcategorías por usuario y categoría (Car → Gasoil, Parking…) |
 | `transactions` | Movimientos bancarios — ver flujo de estados abajo |
 | `recurring_rules` | Reglas de recurrencia |
 | `budgets` | Presupuestos por categoría y mes |
@@ -202,14 +206,14 @@ El token de acceso caduca en 15 minutos. El interceptor de Axios lo renueva auto
 #### Finance (`/api/v1/finance/`)
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/catalogues` | Tipos, clases y categorías |
+| GET | `/catalogues` | Tipos, clases, categorías, subcategorías y empresas (autocompletar) |
 | GET | `/accounts` | Lista de cuentas |
 | POST | `/accounts` | Crear cuenta |
 | PUT | `/accounts/:id` | Editar cuenta |
 | DELETE | `/accounts/:id` | Eliminar cuenta (soft delete) |
 | POST | `/import/excel` | Importar fichero .xls de ING (multipart/form-data, campo "file") |
 | GET | `/transactions` | Transacciones categorizadas (filtros: account_id, type_id, category_id, date_from, date_to, page) |
-| GET | `/transactions/all` | Todas las transacciones (filtros anteriores + q=búsqueda, status=all/pending/categorized) |
+| GET | `/transactions/all` | Todas las transacciones (filtros + q=búsqueda, status=all/pending/categorized/deprecated/active) |
 | GET | `/transactions/pending` | Cola de pendientes |
 | PUT | `/transactions/:id/categorize` | Categorizar transacción |
 | PUT | `/transactions/:id` | Edición completa |
@@ -246,6 +250,9 @@ El token de acceso caduca en 15 minutos. El interceptor de Axios lo renueva auto
 **Categorizar:**
 - Clic en **Categorizar**
 - Se abre el modal con tipo/clase/categoría pre-rellenados con la sugerencia ING (badge dorado **✦ Sugerencia ING**)
+- Opcional: **Subcategoría** — combobox filtrado por la categoría elegida (Car → Gasoil,
+  Parking…). Eliges una existente o escribes una nueva, que se guarda para reusar
+- **Empresa/Comercio** se autocompleta a medida que escribes (sugiere tus comercios)
 - Revisa y ajusta si es necesario
 - Clic en **Guardar** para confirmar
 
@@ -364,3 +371,4 @@ tail -f /var/log/nginx/error.log   # errores de Nginx
 | Jun 2026 | 0.2 | Auth completo: login/register/refresh/me + frontend Login/Register |
 | Jun 2026 | 0.3a | Finance: import Excel ING, categorización, splits, edit transactions |
 | Jun 2026 | 0.3a | Migración legacy (4.578 tx, 6 años) + flag deprecated + lógica transfers (T03) |
+| Jun 2026 | 0.3a | Subcategorías (combobox por categoría) + orden determinista + autocompletado de empresa |
