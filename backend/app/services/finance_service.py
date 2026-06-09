@@ -389,6 +389,46 @@ def categorize_transaction(tx: Transaction, data: dict) -> Transaction:
     return tx
 
 
+def categorize_bulk(user_id: str, items: list[dict]) -> int:
+    """
+    Categoriza varias transacciones de golpe (una sola transacción de BD).
+    Cada item: {id, type_id, class_id, category_id, subcategory_label?}.
+    Solo aplica los que tengan type_id, class_id y category_id.
+    """
+    count = 0
+    for item in items:
+        type_id = item.get("type_id")
+        is_transfer = type_id == TRANSFER_TYPE
+        # Transferencia: basta el tipo. Resto: requiere tipo+clase+categoría.
+        if not is_transfer and not (type_id and item.get("class_id") and item.get("category_id")):
+            continue
+        tx = db.session.get(Transaction, item.get("id"))
+        if not tx or tx.user_id != user_id:
+            continue
+
+        if is_transfer:
+            tx.type_id = TRANSFER_TYPE
+            tx.class_id = None
+            tx.category_id = None
+            tx.subcategory_id = None
+        else:
+            tx.type_id = type_id
+            tx.class_id = item["class_id"]
+            tx.category_id = item["category_id"]
+            if "subcategory_label" in item:
+                tx.subcategory_id = get_or_create_subcategory(
+                    user_id, item["category_id"], item.get("subcategory_label"))
+
+        if "company" in item:
+            tx.company = (item.get("company") or "").strip() or None
+        if "comment" in item:
+            tx.comment = (item.get("comment") or "").strip() or None
+        tx.deprecated = False
+        count += 1
+    db.session.commit()
+    return count
+
+
 def split_transaction(tx: Transaction, splits: list[dict]) -> list[Transaction]:
     """
     Converts tx into a split parent + N children.

@@ -1,9 +1,27 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Fragment } from "react";
+import {
+  ResponsiveContainer, ComposedChart, Bar, Line, LineChart,
+  XAxis, YAxis, Tooltip, CartesianGrid, Legend,
+} from "recharts";
 import financeApi from "../api/finance";
 import { fmtEUR as fmt } from "../utils/format";
 
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
                 "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+function DarkTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-navy-950 border border-navy-600 rounded-lg px-3 py-2 text-xs shadow-xl">
+      {label != null && <p className="text-navy-300 mb-1">{typeof label === "number" ? MONTHS[label - 1] : label}</p>}
+      {payload.map((p, i) => (
+        <p key={i} style={{ color: p.color || p.fill }}>
+          {p.name}: <span className="font-semibold">{fmt(p.value)}</span>
+        </p>
+      ))}
+    </div>
+  );
+}
 
 const inputCls =
   "w-full bg-navy-900 border border-navy-600 text-white rounded-lg px-3 py-2 text-sm " +
@@ -15,6 +33,21 @@ function barColor(pct) {
   if (pct <= 80) return "bg-green-500";
   if (pct <= 100) return "bg-amber-500";
   return "bg-red-500";
+}
+
+// Color de fondo de celda de la matriz (rating)
+function cellStyle(cell) {
+  const { pct, budget, actual } = cell;
+  if (pct == null) {
+    if (actual > 0) return { background: "rgba(100,116,139,0.25)", color: "#94a3b8" }; // gasto sin ppto
+    return { background: "transparent", color: "#334155" };
+  }
+  // verde (sobrado) → ámbar (justo) → rojo (excedido)
+  if (pct <= 75) return { background: "rgba(34,197,94,0.22)", color: "#4ade80" };
+  if (pct <= 100) return { background: "rgba(132,204,22,0.20)", color: "#a3e635" };
+  if (pct <= 110) return { background: "rgba(234,179,8,0.25)", color: "#fbbf24" };
+  if (pct <= 130) return { background: "rgba(249,115,22,0.28)", color: "#fb923c" };
+  return { background: "rgba(239,68,68,0.32)", color: "#f87171" };
 }
 
 // ── Progress bar ──────────────────────────────────────────────────────────────
@@ -368,9 +401,10 @@ export default function Budgets() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1); // null = año completo
-  const [view, setView] = useState("comparison"); // "comparison" | "lines"
+  const [view, setView] = useState("summary"); // "summary" | "comparison" | "lines"
   const [comparison, setComparison] = useState(null);
   const [lines, setLines] = useState([]);
+  const [annual, setAnnual] = useState(null);
   const [catalogues, setCatalogues] = useState(null);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null); // "new" | budget object (edit)
@@ -380,13 +414,15 @@ export default function Budgets() {
     setLoading(true);
     try {
       const params = { year, ...(month ? { month } : {}) };
-      const [compRes, linesRes, catRes] = await Promise.all([
+      const [compRes, linesRes, annualRes, catRes] = await Promise.all([
         financeApi.getBudgetComparison(params),
         financeApi.getBudgets(params),
+        financeApi.getBudgetAnnual({ year }),
         catalogues ? null : financeApi.getCatalogues(),
       ]);
       setComparison(compRes.data.data);
       setLines(linesRes.data.data);
+      setAnnual(annualRes.data.data);
       if (catRes) setCatalogues(catRes.data.data);
     } finally {
       setLoading(false);
@@ -453,7 +489,7 @@ export default function Budgets() {
 
       {/* Toggle de vista */}
       <div className="flex gap-1 bg-navy-800 rounded-lg p-1 border border-navy-700 w-fit mb-4">
-        {[["comparison", "Comparativa"], ["lines", "Líneas"]].map(([v, label]) => (
+        {[["summary", "Resumen anual"], ["comparison", "Comparativa"], ["lines", "Líneas"]].map(([v, label]) => (
           <button key={v} onClick={() => setView(v)}
             className={`px-4 py-1.5 rounded-md text-sm transition ${view === v
               ? "bg-navy-600 text-white font-medium" : "text-navy-400 hover:text-white"}`}>
@@ -464,6 +500,131 @@ export default function Budgets() {
 
       {loading ? (
         <p className="text-navy-400">Cargando…</p>
+      ) : view === "summary" ? (
+        /* ── Resumen anual ── */
+        !annual ? (
+          <p className="text-navy-400">Sin datos.</p>
+        ) : (
+          <div className="space-y-4">
+            <div className="bg-navy-800 border border-navy-700 rounded-xl p-5">
+              <p className="text-navy-300 text-sm font-medium mb-3">
+                Presupuesto vs gasto real por mes · {year}
+              </p>
+              <ResponsiveContainer width="100%" height={280}>
+                <ComposedChart data={annual.monthly}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#21305a" vertical={false} />
+                  <XAxis dataKey="month" tickFormatter={(m) => MONTHS[m - 1]}
+                    tick={{ fill: "#7f94bc", fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: "#7f94bc", fontSize: 11 }} axisLine={false} tickLine={false}
+                    tickFormatter={(v) => v >= 1000 ? `${v / 1000}k` : v} />
+                  <Tooltip content={<DarkTooltip />} cursor={{ fill: "#ffffff08" }} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="budget" name="Presupuesto" fill="#3a5490" radius={[3, 3, 0, 0]} />
+                  <Line type="monotone" dataKey="actual" name="Real" stroke="#c9922a" strokeWidth={2}
+                    dot={{ r: 3, fill: "#c9922a" }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="bg-navy-800 border border-navy-700 rounded-xl p-5">
+              <p className="text-navy-300 text-sm font-medium mb-3">
+                Evolución del gasto por categoría (top 6)
+              </p>
+              {annual.category_series.length === 0 ? (
+                <p className="text-navy-500 text-sm py-8 text-center">Sin datos</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={MONTHS.map((label, i) => {
+                    const point = { month: i + 1 };
+                    annual.category_series.forEach((s) => { point[s.label] = s.values[i]; });
+                    return point;
+                  })}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#21305a" vertical={false} />
+                    <XAxis dataKey="month" tickFormatter={(m) => MONTHS[m - 1]}
+                      tick={{ fill: "#7f94bc", fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: "#7f94bc", fontSize: 11 }} axisLine={false} tickLine={false}
+                      tickFormatter={(v) => v >= 1000 ? `${v / 1000}k` : v} />
+                    <Tooltip content={<DarkTooltip />} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    {annual.category_series.map((s) => (
+                      <Line key={s.category_id} type="monotone" dataKey={s.label}
+                        stroke={s.color} strokeWidth={2} dot={false} />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            {/* Matriz budget status: meses × clase-categoría con rating + color */}
+            <div className="bg-navy-800 border border-navy-700 rounded-xl p-5">
+              <p className="text-navy-300 text-sm font-medium mb-1">Estado del presupuesto</p>
+              <p className="text-navy-500 text-xs mb-3">
+                % gastado sobre presupuesto · pasa el ratón por una celda para ver importes
+              </p>
+              <div className="overflow-x-auto">
+                <table className="text-xs border-separate" style={{ borderSpacing: 2 }}>
+                  <thead>
+                    <tr>
+                      <th className="text-left px-2 py-1 text-navy-400 font-medium sticky left-0 bg-navy-800 z-10">
+                        Categoría
+                      </th>
+                      {MONTHS.map((m) => (
+                        <th key={m} className="px-1 py-1 text-navy-500 font-medium w-12 text-center">{m}</th>
+                      ))}
+                      <th className="px-2 py-1 text-navy-400 font-medium text-center">Año</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(annual.matrix || []).map((row, i) => {
+                      const prev = annual.matrix[i - 1];
+                      const showType = !prev || prev.type_id !== row.type_id;
+                      return (
+                        <Fragment key={`${row.class_id}-${row.category_id}`}>
+                          {showType && (
+                            <tr>
+                              <td colSpan={14} className="pt-3 pb-1 px-2 text-champagne text-xs font-bold uppercase tracking-wide">
+                                {row.type_label}
+                              </td>
+                            </tr>
+                          )}
+                          <tr>
+                            <td className="px-2 py-1 sticky left-0 bg-navy-800 z-10 whitespace-nowrap">
+                              <span className="text-white">{row.category_icon} {row.category_label}</span>
+                              <span className="text-navy-500 ml-1.5">· {row.class_label}</span>
+                            </td>
+                            {row.cells.map((cell) => (
+                              <td key={cell.month} className="text-center rounded"
+                                style={{ ...cellStyle(cell), width: 44, height: 26 }}
+                                title={cell.budget || cell.actual
+                                  ? `${MONTHS[cell.month - 1]}: real ${fmt(cell.actual)} / ppto ${fmt(cell.budget)}`
+                                  : ""}>
+                                {cell.pct != null ? `${Math.round(cell.pct)}%` : (cell.actual > 0 ? "·" : "")}
+                              </td>
+                            ))}
+                            <td className="text-center rounded font-semibold"
+                              style={{ ...cellStyle({ pct: row.total_pct, budget: row.total_budget, actual: row.total_actual }), width: 52, height: 26 }}
+                              title={`Año: real ${fmt(row.total_actual)} / ppto ${fmt(row.total_budget)}`}>
+                              {row.total_pct != null ? `${Math.round(row.total_pct)}%` : "·"}
+                            </td>
+                          </tr>
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {/* Leyenda */}
+              <div className="flex items-center gap-3 mt-4 text-xs text-navy-400 flex-wrap">
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: "rgba(34,197,94,0.22)" }} /> &lt;75%</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: "rgba(132,204,22,0.20)" }} /> 75-100%</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: "rgba(234,179,8,0.25)" }} /> 100-110%</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: "rgba(249,115,22,0.28)" }} /> 110-130%</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: "rgba(239,68,68,0.32)" }} /> &gt;130%</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: "rgba(100,116,139,0.25)" }} /> sin ppto</span>
+              </div>
+            </div>
+          </div>
+        )
       ) : view === "lines" ? (
         /* ── Vista de líneas (gestión) ── */
         lines.length === 0 ? (

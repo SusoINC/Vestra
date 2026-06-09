@@ -31,6 +31,8 @@ const financeApi = {
   getPending: () => axiosClient.get("/finance/transactions/pending"),
   categorize: (id, data) =>
     axiosClient.put(`/finance/transactions/${id}/categorize`, data),
+  categorizeBulk: (items) =>
+    axiosClient.post("/finance/transactions/categorize-bulk", { items }),
   split: (id, splits) =>
     axiosClient.post(`/finance/transactions/${id}/split`, { splits }),
   deleteTransaction: (id) =>
@@ -43,6 +45,11 @@ const financeApi = {
   deleteBudget: (id) => axiosClient.delete(`/finance/budgets/${id}`),
   getBudgetComparison: (params = {}) =>
     axiosClient.get("/finance/budgets/comparison", { params }),
+  getBudgetAnnual: (params = {}) =>
+    axiosClient.get("/finance/budgets/annual", { params }),
+
+  // Dashboard
+  getDashboard: (params = {}) => axiosClient.get("/finance/dashboard", { params }),
 };
 
 export default financeApi;

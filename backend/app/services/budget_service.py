@@ -330,3 +330,155 @@ def comparison(user_id: str, year: int, month: int | None) -> dict:
             "remaining_expenses": round(total_budget_exp - total_actual_exp, 2),
         },
     }
+
+
+# ── Resumen anual (para la pestaña "Resumen") ────────────────────────────────
+
+def annual_summary(user_id: str, year: int) -> dict:
+    """
+    Resumen anual: presupuesto vs real de gastos por mes, y evolución mensual
+    del gasto real por categoría (para gráfico de líneas).
+    """
+    # Real de gastos (T02) por mes y categoría
+    q = select(
+        extract("month", Transaction.op_date).label("m"),
+        Transaction.category_id,
+        func.sum(Transaction.amount).label("total"),
+    ).where(
+        Transaction.user_id == user_id,
+        Transaction.is_split == False,
+        Transaction.type_id == "T02",
+        Transaction.category_id != None,
+        extract("year", Transaction.op_date) == year,
+    ).group_by("m", Transaction.category_id)
+
+    actual_by_month = {m: 0.0 for m in range(1, 13)}
+    cat_month = {}  # cat -> {m: total}
+    cat_total = {}  # cat -> total año
+    for row in db.session.execute(q):
+        m = int(row.m)
+        amt = abs(float(row.total or 0))
+        actual_by_month[m] += amt
+        cat_month.setdefault(row.category_id, {})[m] = amt
+        cat_total[row.category_id] = cat_total.get(row.category_id, 0) + amt
+
+    # Presupuesto de gastos (T02) por mes
+    bq = select(
+        Budget.month, func.sum(Budget.amount).label("total"),
+    ).where(
+        Budget.user_id == user_id,
+        Budget.year == year,
+        Budget.type_id == "T02",
+        Budget.month != None,
+    ).group_by(Budget.month)
+    budget_by_month = {m: 0.0 for m in range(1, 13)}
+    for row in db.session.execute(bq):
+        budget_by_month[int(row.month)] = float(row.total or 0)
+
+    monthly = [{
+        "month": m,
+        "budget": round(budget_by_month[m], 2),
+        "actual": round(actual_by_month[m], 2),
+    } for m in range(1, 13)]
+
+    # Top categorías por gasto anual → series mensuales para líneas
+    cats = {c.id: c for c in db.session.execute(select(TxCategory)).scalars().all()}
+    top = sorted(cat_total.items(), key=lambda x: -x[1])[:6]
+    series = []
+    for cat_id, _tot in top:
+        c = cats.get(cat_id)
+        series.append({
+            "category_id": cat_id,
+            "label": c.label if c else "?",
+            "color": c.color if c else "#888",
+            "values": [round(cat_month.get(cat_id, {}).get(m, 0.0), 2) for m in range(1, 13)],
+        })
+
+    return {
+        "year": year,
+        "monthly": monthly,
+        "category_series": series,
+        "matrix": _annual_matrix(user_id, year),
+    }
+
+
+def _annual_matrix(user_id: str, year: int) -> list[dict]:
+    """
+    Matriz presupuesto status: filas (tipo→clase→categoría), columnas 12 meses.
+    Cada celda: {budget, actual, pct}. Para tabla con color coding.
+    """
+    cats = {c.id: c for c in db.session.execute(select(TxCategory)).scalars().all()}
+    class_labels = {c.id: c.label for c in db.session.execute(select(TxClass)).scalars().all()}
+    type_labels = {t.id: t.label for t in db.session.execute(select(TxType)).scalars().all()}
+
+    # Presupuesto por (class, cat, month)
+    bq = select(
+        Budget.type_id, Budget.class_id, Budget.category_id, Budget.month,
+        func.sum(Budget.amount),
+    ).where(
+        Budget.user_id == user_id, Budget.year == year, Budget.month != None,
+    ).group_by(Budget.type_id, Budget.class_id, Budget.category_id, Budget.month)
+
+    rows: dict = {}  # (class, cat) -> {type, budget[m], actual[m]}
+
+    def _row(cl, cat, tid):
+        key = (cl, cat)
+        if key not in rows:
+            rows[key] = {"type_id": tid, "class_id": cl, "category_id": cat,
+                         "budget": {}, "actual": {}}
+        if tid and not rows[key]["type_id"]:
+            rows[key]["type_id"] = tid
+        return rows[key]
+
+    for tid, cl, cat, m, amt in db.session.execute(bq):
+        _row(cl, cat, tid)["budget"][int(m)] = float(amt or 0)
+
+    # Real por (class, cat, month)
+    aq = select(
+        Transaction.type_id, Transaction.class_id, Transaction.category_id,
+        extract("month", Transaction.op_date).label("m"),
+        func.sum(Transaction.amount),
+    ).where(
+        Transaction.user_id == user_id,
+        Transaction.is_split == False,
+        Transaction.category_id != None,
+        extract("year", Transaction.op_date) == year,
+    ).group_by(Transaction.type_id, Transaction.class_id, Transaction.category_id, "m")
+
+    for tid, cl, cat, m, amt in db.session.execute(aq):
+        _row(cl, cat, tid)["actual"][int(m)] = abs(float(amt or 0))
+
+    TYPE_ORDER = {"T01": 0, "T02": 1, "T04": 2, "T05": 3}
+    CLASS_ORDER = {"C01": 0, "C02": 1, "C03": 2, "C04": 3}
+
+    out = []
+    for (cl, cat), r in rows.items():
+        cells = []
+        tot_b = tot_a = 0.0
+        for m in range(1, 13):
+            b = round(r["budget"].get(m, 0.0), 2)
+            a = round(r["actual"].get(m, 0.0), 2)
+            tot_b += b
+            tot_a += a
+            cells.append({
+                "month": m, "budget": b, "actual": a,
+                "pct": round(a / b * 100, 1) if b > 0 else None,
+            })
+        c_info = cats.get(cat)
+        out.append({
+            "type_id": r["type_id"],
+            "type_label": type_labels.get(r["type_id"], "—"),
+            "class_id": cl,
+            "class_label": class_labels.get(cl, "—"),
+            "category_id": cat,
+            "category_label": c_info.label if c_info else "?",
+            "category_icon": c_info.icon if c_info else None,
+            "cells": cells,
+            "total_budget": round(tot_b, 2),
+            "total_actual": round(tot_a, 2),
+            "total_pct": round(tot_a / tot_b * 100, 1) if tot_b > 0 else None,
+        })
+    out.sort(key=lambda r: (TYPE_ORDER.get(r["type_id"], 99),
+                            CLASS_ORDER.get(r["class_id"], 99),
+                            -r["total_actual"]))
+    return out

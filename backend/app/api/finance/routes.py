@@ -3,7 +3,9 @@ from __future__ import annotations
 from flask import request
 from flask_jwt_extended import get_current_user, jwt_required
 
-from ...services import finance_service, import_service, budget_service
+from ...services import (
+    finance_service, import_service, budget_service, dashboard_service,
+)
 from ...utils.responses import created, error, ok
 from . import bp
 
@@ -158,6 +160,18 @@ def categorize(tx_id):
     return ok(finance_service.tx_to_dict(tx))
 
 
+@bp.post("/transactions/categorize-bulk")
+@jwt_required()
+def categorize_bulk():
+    user = get_current_user()
+    body = request.get_json(silent=True) or {}
+    items = body.get("items", [])
+    if not items:
+        return error("MISSING_FIELDS", "Se requiere 'items'")
+    count = finance_service.categorize_bulk(user.id, items)
+    return ok({"categorized": count})
+
+
 @bp.post("/transactions/<tx_id>/split")
 @jwt_required()
 def split(tx_id):
@@ -280,3 +294,23 @@ def budget_comparison():
     if not year:
         return error("MISSING_FIELDS", "year es obligatorio")
     return ok(budget_service.comparison(user.id, year, month))
+
+
+# ── Dashboard & resumen anual ────────────────────────────────────────────────
+
+@bp.get("/dashboard")
+@jwt_required()
+def dashboard():
+    user = get_current_user()
+    year = request.args.get("year", type=int) or __import__("datetime").date.today().year
+    return ok(dashboard_service.dashboard(user.id, year))
+
+
+@bp.get("/budgets/annual")
+@jwt_required()
+def budgets_annual():
+    user = get_current_user()
+    year = request.args.get("year", type=int)
+    if not year:
+        return error("MISSING_FIELDS", "year es obligatorio")
+    return ok(budget_service.annual_summary(user.id, year))
