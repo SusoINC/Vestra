@@ -8,6 +8,7 @@ import Import from "./pages/Import";
 import Pending from "./pages/Pending";
 import Transactions from "./pages/Transactions";
 import EditTransactions from "./pages/EditTransactions";
+import Budgets from "./pages/Budgets";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AppLayout from "./layouts/AppLayout";
 import useAuthStore from "./store/authStore";
@@ -41,6 +42,7 @@ export default function App() {
               <Route path="/pending"      element={<Pending />} />
               <Route path="/transactions"      element={<Transactions />} />
               <Route path="/edit-transactions" element={<EditTransactions />} />
+              <Route path="/budgets"           element={<Budgets />} />
             </Route>
           </Route>
 

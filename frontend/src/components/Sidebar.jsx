@@ -59,6 +59,10 @@ export default function Sidebar() {
           <span>✏️</span> Editar movimientos
         </NavLink>
 
+        <NavLink to="/budgets" className={({ isActive }) => `${navItem} ${isActive ? active : inactive}`}>
+          <span>📊</span> Presupuestos
+        </NavLink>
+
         <NavLink to="/import" className={({ isActive }) => `${navItem} ${isActive ? active : inactive}`}>
           <span>📥</span> Importar
         </NavLink>

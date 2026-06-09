@@ -1,9 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import financeApi from "../api/finance";
 import useFinanceStore from "../store/financeStore";
-
-const fmt = (n) =>
-  Number(n).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
+import { fmtEUR as fmt } from "../utils/format";
 
 const inputCls =
   "w-full bg-navy-900 border border-navy-600 text-white rounded-lg px-3 py-2 text-sm " +
@@ -45,9 +43,8 @@ function EditModal({ tx, catalogues, onClose, onSaved }) {
   });
   const [saving, setSaving] = useState(false);
 
-  const filteredCats = catalogues.categories.filter(
-    (c) => !form.class_id || c.class_id === form.class_id
-  );
+  // Clase y categoría son independientes → se muestran todas las categorías
+  const filteredCats = catalogues.categories;
   const subcatOptions = (catalogues.subcategories || [])
     .filter((s) => s.category_id === form.category_id);
 
@@ -127,7 +124,7 @@ function EditModal({ tx, catalogues, onClose, onSaved }) {
             <div>
               <label className="block text-navy-400 text-xs font-medium mb-1">Clase</label>
               <select value={form.class_id}
-                onChange={(e) => setForm({ ...form, class_id: e.target.value, category_id: "" })}
+                onChange={(e) => setForm({ ...form, class_id: e.target.value })}
                 className={selectCls + " w-full"}>
                 <option value="">— Sin clase —</option>
                 {catalogues.classes.map((c) => (
@@ -281,6 +278,9 @@ export default function EditTransactions() {
     const next = { ...filters, [key]: val, page: 1 };
     applyFilters(next);
   };
+
+  // Cambio de página: NO resetea a 1 (a diferencia de setFilter)
+  const goToPage = (p) => applyFilters({ ...filters, page: p });
 
   const handleSearch = (val) => {
     setFilters((f) => ({ ...f, q: val, page: 1 }));
@@ -510,12 +510,12 @@ export default function EditTransactions() {
               </p>
               <div className="flex gap-2">
                 <button disabled={data.page <= 1}
-                  onClick={() => setFilter("page", filters.page - 1)}
+                  onClick={() => goToPage(data.page - 1)}
                   className="px-3 py-1.5 border border-navy-600 rounded-lg text-navy-300 hover:text-white disabled:opacity-40 transition">
                   ← Anterior
                 </button>
                 <button disabled={data.page >= data.pages}
-                  onClick={() => setFilter("page", filters.page + 1)}
+                  onClick={() => goToPage(data.page + 1)}
                   className="px-3 py-1.5 border border-navy-600 rounded-lg text-navy-300 hover:text-white disabled:opacity-40 transition">
                   Siguiente →
                 </button>

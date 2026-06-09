@@ -35,6 +35,14 @@ const financeApi = {
     axiosClient.post(`/finance/transactions/${id}/split`, { splits }),
   deleteTransaction: (id) =>
     axiosClient.delete(`/finance/transactions/${id}`),
+
+  // Budgets
+  getBudgets: (params = {}) => axiosClient.get("/finance/budgets", { params }),
+  createBudgets: (data) => axiosClient.post("/finance/budgets", data),
+  updateBudget: (id, data) => axiosClient.put(`/finance/budgets/${id}`, data),
+  deleteBudget: (id) => axiosClient.delete(`/finance/budgets/${id}`),
+  getBudgetComparison: (params = {}) =>
+    axiosClient.get("/finance/budgets/comparison", { params }),
 };
 
 export default financeApi;

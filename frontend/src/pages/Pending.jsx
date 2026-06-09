@@ -1,11 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
 import financeApi from "../api/finance";
 import useFinanceStore from "../store/financeStore";
+import { fmtEUR as fmt } from "../utils/format";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const fmt = (n) =>
-  Number(n).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
-
 const inputCls =
   "w-full bg-navy-900 border border-navy-600 text-white rounded-lg px-3 py-2 text-sm " +
   "focus:outline-none focus:border-champagne focus:ring-1 focus:ring-champagne transition";
@@ -26,9 +24,8 @@ function CategorizeModal({ tx, catalogues, onClose, onSaved }) {
   });
   const [saving, setSaving] = useState(false);
 
-  const filteredCats = catalogues.categories.filter(
-    (c) => !form.class_id || c.class_id === form.class_id
-  );
+  // Clase y categoría son independientes → se muestran todas las categorías
+  const filteredCats = catalogues.categories;
   // Subcategorías de la categoría seleccionada (para el datalist)
   const subcatOptions = (catalogues.subcategories || [])
     .filter((s) => s.category_id === form.category_id);
@@ -81,7 +78,7 @@ function CategorizeModal({ tx, catalogues, onClose, onSaved }) {
             <div>
               <label className="block text-navy-300 text-xs font-medium mb-1">Clase *</label>
               <select value={form.class_id}
-                onChange={(e) => setForm({ ...form, class_id: e.target.value, category_id: "" })}
+                onChange={(e) => setForm({ ...form, class_id: e.target.value })}
                 className={inputCls}>
                 <option value="">— Clase —</option>
                 {catalogues.classes.map((c) => (
@@ -197,9 +194,7 @@ function SplitModal({ tx, catalogues, onClose, onSaved }) {
 
         <div className="space-y-4">
           {splits.map((sp, i) => {
-            const filteredCats = catalogues.categories.filter(
-              (c) => !sp.class_id || c.class_id === sp.class_id
-            );
+            const filteredCats = catalogues.categories;
             return (
               <div key={i} className="bg-navy-900 rounded-xl p-4 space-y-3">
                 <div className="flex items-center justify-between">
@@ -226,7 +221,7 @@ function SplitModal({ tx, catalogues, onClose, onSaved }) {
                   <div>
                     <label className="block text-navy-500 text-xs mb-1">Clase</label>
                     <select value={sp.class_id}
-                      onChange={(e) => updateSplit(i, "class_id", e.target.value) || updateSplit(i, "category_id", "")}
+                      onChange={(e) => updateSplit(i, "class_id", e.target.value)}
                       className={inputCls}>
                       {catalogues.classes.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
                     </select>

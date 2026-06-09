@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import financeApi from "../api/finance";
+import { fmtEUR } from "../utils/format";
 
 const ACCOUNT_TYPES = [
   { value: "checking", label: "Cuenta corriente" },
@@ -110,7 +111,7 @@ export default function Accounts() {
           <p className="text-navy-400 text-sm mt-0.5">
             Saldo total:{" "}
             <span className="text-champagne font-semibold">
-              {totalBalance.toLocaleString("es-ES", { style: "currency", currency: "EUR" })}
+              {fmtEUR(totalBalance)}
             </span>
           </p>
         </div>
@@ -139,7 +140,7 @@ export default function Accounts() {
                   </p>
                 </div>
                 <span className={`text-lg font-bold ${a.balance >= 0 ? "text-green-400" : "text-red-400"}`}>
-                  {a.balance.toLocaleString("es-ES", { style: "currency", currency: "EUR" })}
+                  {fmtEUR(a.balance)}
                 </span>
               </div>
               {a.iban && (

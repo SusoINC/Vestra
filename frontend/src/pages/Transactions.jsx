@@ -1,8 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import financeApi from "../api/finance";
-
-const fmt = (n) =>
-  Number(n).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
+import { fmtEUR as fmt } from "../utils/format";
 
 export default function Transactions() {
   const [data, setData] = useState({ items: [], total: 0, page: 1, pages: 1 });

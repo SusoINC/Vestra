@@ -353,49 +353,74 @@ def run_migration(dump_path: str, user_email: str) -> None:
     conn.commit()
     print(f"  Precios de mercado: {len(mp_rows)} procesados (ON CONFLICT skip)")
 
-    # ── 8. Budgets (aggregate multiple lines per class/cat/month) ────────
-    cur.execute("""SELECT class_id, category_id, year, month
-                   FROM budgets WHERE user_id=%s""", (user_id,))
-    existing_bud = {(r["class_id"], r["category_id"], r["year"], r["month"])
-                    for r in cur.fetchall()}
+    # ── 8. Budgets — UNA línea por registro legacy (sin agregar) ─────────
+    # Observations → subcategoría (find-or-create) para distinguir las líneas
+    # del mismo mes/categoría. Día preservado de Op_Date.
 
-    # Aggregate legacy budgets: same (class, cat, year, month) → sum amounts
-    agg: dict[tuple, dict] = {}
+    # Cache de subcategorías existentes del usuario: (cat, lower(label)) -> id
+    cur.execute("SELECT id, category_id, label FROM tx_subcategory WHERE user_id=%s",
+                (user_id,))
+    sub_cache = {(r["category_id"], r["label"].lower()): r["id"] for r in cur.fetchall()}
+
+    def _get_or_create_sub(cat_id, label):
+        label = _s(label)
+        if not label or not cat_id:
+            return None
+        key = (cat_id, label.lower())
+        if key in sub_cache:
+            return sub_cache[key]
+        sid = str(uuid.uuid4())
+        cur.execute("""
+            INSERT INTO tx_subcategory (id, user_id, category_id, label)
+            VALUES (%s,%s,%s,%s)
+        """, (sid, user_id, cat_id, label))
+        sub_cache[key] = sid
+        return sid
+
+    # Dedup de líneas ya existentes (re-ejecución segura)
+    cur.execute("""SELECT category_id, year, month, day, amount,
+                          COALESCE(subcategory_id,'') AS sub
+                   FROM budgets WHERE user_id=%s""", (user_id,))
+    existing_bud = {(r["category_id"], r["year"], r["month"], r["day"],
+                     float(r["amount"]), r["sub"]) for r in cur.fetchall()}
+
+    bud_imported = bud_skipped = 0
     # Budget cols: id,Op_Date,Type,Class,Category,Project,Amount,Observations
     for r in L["Budget"]:
         if len(r) < 8:
             continue
-        _, opdate, _type, lclass, lcat, project, amount, obs = r[:8]
+        _, opdate, ltype, lclass, lcat, project, amount, obs = r[:8]
         opdate = _s(opdate)
         if not opdate or amount is None:
             continue
         class_id = _s(lclass) if _s(lclass) in valid_classes else None
         cat_id = _s(lcat) if _s(lcat) in valid_cats else None
+        type_id = _s(ltype) if _s(ltype) in valid_types else None
         if not class_id:
             continue
         try:
             dt = datetime.strptime(opdate, "%Y-%m-%d")
         except ValueError:
             continue
-        key = (class_id, cat_id, dt.year, dt.month)
-        if key not in agg:
-            agg[key] = {"amount": 0.0, "notes": _s(obs) or None}
-        agg[key]["amount"] += float(amount)
 
-    bud_imported = bud_skipped = 0
-    for key, val in agg.items():
-        if key in existing_bud:
+        sub_id = _get_or_create_sub(cat_id, obs)
+        amt = round(float(amount), 2)
+        dedup_key = (cat_id, dt.year, dt.month, dt.day, amt, sub_id or "")
+        if dedup_key in existing_bud:
             bud_skipped += 1
             continue
-        class_id, cat_id, year, month = key
+
         cur.execute("""
-            INSERT INTO budgets (id, user_id, class_id, category_id, year, month, amount, notes)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-        """, (str(uuid.uuid4()), user_id, class_id, cat_id, year, month,
-              round(val["amount"], 2), val["notes"]))
+            INSERT INTO budgets
+              (id, user_id, type_id, class_id, category_id, subcategory_id,
+               year, month, day, amount, notes)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, (str(uuid.uuid4()), user_id, type_id, class_id, cat_id, sub_id,
+              dt.year, dt.month, dt.day, amt, None))
+        existing_bud.add(dedup_key)
         bud_imported += 1
     conn.commit()
-    print(f"  Presupuestos: {bud_imported} migrados (agregados de {len(L['Budget'])} líneas), "
+    print(f"  Presupuestos: {bud_imported} migrados (1 por línea legacy), "
           f"{bud_skipped} ya existían")
 
     # ── Summary ──────────────────────────────────────────────────────────

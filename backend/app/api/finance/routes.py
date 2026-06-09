@@ -3,7 +3,7 @@ from __future__ import annotations
 from flask import request
 from flask_jwt_extended import get_current_user, jwt_required
 
-from ...services import finance_service, import_service
+from ...services import finance_service, import_service, budget_service
 from ...utils.responses import created, error, ok
 from . import bp
 
@@ -221,3 +221,62 @@ def delete_transaction(tx_id):
         return error("NOT_FOUND", "Transacción no encontrada", 404)
     finance_service.delete_transaction(tx)
     return ok({"message": "Transacción eliminada"})
+
+
+# ── Budgets ────────────────────────────────────────────────────────────────────
+
+@bp.get("/budgets")
+@jwt_required()
+def list_budgets():
+    user = get_current_user()
+    year = request.args.get("year", type=int)
+    month = request.args.get("month", type=int)  # opcional
+    if not year:
+        return error("MISSING_FIELDS", "year es obligatorio")
+    budgets = budget_service.list_budgets(user.id, year, month)
+    return ok([budget_service.budget_to_dict(b) for b in budgets])
+
+
+@bp.post("/budgets")
+@jwt_required()
+def create_budgets():
+    user = get_current_user()
+    body = request.get_json(silent=True) or {}
+    if not body.get("year") or not body.get("class_id") or not body.get("category_id"):
+        return error("MISSING_FIELDS", "year, class_id y category_id son obligatorios")
+    created_list = budget_service.create_budgets(user.id, body)
+    return created([budget_service.budget_to_dict(b) for b in created_list])
+
+
+@bp.put("/budgets/<budget_id>")
+@jwt_required()
+def update_budget(budget_id):
+    user = get_current_user()
+    b = budget_service.get_budget(user.id, budget_id)
+    if not b:
+        return error("NOT_FOUND", "Presupuesto no encontrado", 404)
+    body = request.get_json(silent=True) or {}
+    b = budget_service.update_budget(b, body)
+    return ok(budget_service.budget_to_dict(b))
+
+
+@bp.delete("/budgets/<budget_id>")
+@jwt_required()
+def delete_budget(budget_id):
+    user = get_current_user()
+    b = budget_service.get_budget(user.id, budget_id)
+    if not b:
+        return error("NOT_FOUND", "Presupuesto no encontrado", 404)
+    budget_service.delete_budget(b)
+    return ok({"message": "Presupuesto eliminado"})
+
+
+@bp.get("/budgets/comparison")
+@jwt_required()
+def budget_comparison():
+    user = get_current_user()
+    year = request.args.get("year", type=int)
+    month = request.args.get("month", type=int)  # opcional → vista anual
+    if not year:
+        return error("MISSING_FIELDS", "year es obligatorio")
+    return ok(budget_service.comparison(user.id, year, month))
