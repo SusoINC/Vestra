@@ -520,12 +520,12 @@ export default function Budgets() {
           <p>Sin datos para este período.</p>
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-7">
           {comparison.groups.map((g) => (
             <div key={g.type_id || "none"}>
-              {/* Cabecera del grupo (tipo) con rating agregado */}
-              <div className="flex items-center justify-between mb-2 px-1">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-champagne">
+              {/* Cabecera de TIPO con rating */}
+              <div className="flex items-center justify-between mb-3 pb-1 border-b border-navy-700">
+                <h2 className="text-base font-bold uppercase tracking-wide text-champagne">
                   {g.type_label}
                 </h2>
                 <div className="text-sm">
@@ -538,11 +538,36 @@ export default function Budgets() {
                   )}
                 </div>
               </div>
-              <div className="space-y-2">
-                {g.categories.map((c) => (
-                  <CategoryCard key={c.category_id} c={c}
-                    isOpen={expanded[c.category_id]}
-                    onToggle={() => setExpanded((e) => ({ ...e, [c.category_id]: !e[c.category_id] }))} />
+
+              {/* Subgrupos por CLASE */}
+              <div className="space-y-5">
+                {g.classes.map((cl) => (
+                  <div key={cl.class_id || "none"}>
+                    <div className="flex items-center justify-between mb-2 px-1">
+                      <h3 className="text-xs font-semibold uppercase tracking-widest text-navy-400">
+                        {cl.class_label}
+                      </h3>
+                      <div className="text-xs">
+                        <span className={cl.pct > 100 ? "text-red-400" : "text-navy-300"}>{fmt(cl.actual)}</span>
+                        <span className="text-navy-600"> / {fmt(cl.budget)}</span>
+                        {cl.pct != null && (
+                          <span className={`ml-2 font-semibold ${cl.pct > 100 ? "text-red-400" : cl.pct > 80 ? "text-amber-400" : "text-green-400"}`}>
+                            {cl.pct}%
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {cl.categories.map((c) => {
+                        const key = `${cl.class_id}-${c.category_id}`;
+                        return (
+                          <CategoryCard key={key} c={c}
+                            isOpen={expanded[key]}
+                            onToggle={() => setExpanded((e) => ({ ...e, [key]: !e[key] }))} />
+                        );
+                      })}
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
