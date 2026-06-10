@@ -127,6 +127,7 @@ export default function Dashboard() {
                   <Bar dataKey="income" name="Ingresos" fill="#22c55e" radius={[3, 3, 0, 0]} />
                   <Bar dataKey="expense" name="Gastos" fill="#ef4444" radius={[3, 3, 0, 0]} />
                   <Bar dataKey="investment" name="Inversión" fill="#c9922a" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="savings" name="Ahorro" fill="#2dd4bf" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -135,7 +136,7 @@ export default function Dashboard() {
           {/* Fila: evolución ahorro + donut categorías */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="lg:col-span-2 bg-navy-800 border border-navy-700 rounded-xl p-5">
-              <p className="text-navy-300 text-sm font-medium mb-3">Evolución del ahorro mensual</p>
+              <p className="text-navy-300 text-sm font-medium mb-3">Ahorro mensual (inversión + ahorro)</p>
               <ResponsiveContainer width="100%" height={220}>
                 <AreaChart data={data.monthly}>
                   <defs>
@@ -150,7 +151,7 @@ export default function Dashboard() {
                   <YAxis tick={{ fill: "#7f94bc", fontSize: 11 }} axisLine={false} tickLine={false}
                     tickFormatter={(v) => v >= 1000 || v <= -1000 ? `${v / 1000}k` : v} />
                   <Tooltip content={<DarkTooltip />} cursor={{ stroke: "#c9922a" }} />
-                  <Area type="monotone" dataKey="net" name="Ahorro" stroke="#c9922a"
+                  <Area type="monotone" dataKey="saved" name="Ahorro" stroke="#c9922a"
                     strokeWidth={2} fill="url(#netGrad)" />
                 </AreaChart>
               </ResponsiveContainer>

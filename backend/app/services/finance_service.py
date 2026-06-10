@@ -164,6 +164,26 @@ def account_to_dict(a: Account) -> dict:
 
 # ── Transactions ───────────────────────────────────────────────────────────────
 
+def _category_clause(category_id):
+    """Acepta uno o varios ids de categoría separados por coma."""
+    if not category_id:
+        return None
+    ids = [c for c in str(category_id).split(",") if c]
+    return Transaction.category_id.in_(ids) if ids else None
+
+
+def _search_clause(term: str):
+    """Búsqueda libre en empresa, descripción, comentario y subcategoría."""
+    like = f"%{term}%"
+    sub_ids = select(TxSubcategory.id).where(TxSubcategory.label.ilike(like))
+    return or_(
+        Transaction.company.ilike(like),
+        Transaction.description.ilike(like),
+        Transaction.comment.ilike(like),
+        Transaction.subcategory_id.in_(sub_ids),
+    )
+
+
 def list_transactions(user_id: str, filters: dict) -> dict:
     """Returns paginated categorized transactions."""
     q = (
@@ -174,12 +194,15 @@ def list_transactions(user_id: str, filters: dict) -> dict:
             _is_done(),                          # categorizada o transferencia
         )
     )
+    if filters.get("q"):
+        q = q.where(_search_clause(filters["q"]))
     if filters.get("account_id"):
         q = q.where(Transaction.account_id == filters["account_id"])
     if filters.get("type_id"):
         q = q.where(Transaction.type_id == filters["type_id"])
-    if filters.get("category_id"):
-        q = q.where(Transaction.category_id == filters["category_id"])
+    cat_clause = _category_clause(filters.get("category_id"))
+    if cat_clause is not None:
+        q = q.where(cat_clause)
     if filters.get("date_from"):
         q = q.where(Transaction.op_date >= filters["date_from"])
     if filters.get("date_to"):
@@ -244,16 +267,9 @@ def list_all_transactions(user_id: str, filters: dict) -> dict:
         Transaction.parent_id == None,  # top-level only
     )
 
-    # Free-text search
+    # Free-text search (empresa, descripción, comentario y subcategoría)
     if filters.get("q"):
-        term = f"%{filters['q']}%"
-        q = q.where(
-            or_(
-                Transaction.company.ilike(term),
-                Transaction.description.ilike(term),
-                Transaction.comment.ilike(term),
-            )
-        )
+        q = q.where(_search_clause(filters["q"]))
 
     # Status filter
     status = filters.get("status", "all")
@@ -271,8 +287,9 @@ def list_all_transactions(user_id: str, filters: dict) -> dict:
         q = q.where(Transaction.account_id == filters["account_id"])
     if filters.get("type_id"):
         q = q.where(Transaction.type_id == filters["type_id"])
-    if filters.get("category_id"):
-        q = q.where(Transaction.category_id == filters["category_id"])
+    cat_clause = _category_clause(filters.get("category_id"))
+    if cat_clause is not None:
+        q = q.where(cat_clause)
     if filters.get("date_from"):
         q = q.where(Transaction.op_date >= filters["date_from"])
     if filters.get("date_to"):

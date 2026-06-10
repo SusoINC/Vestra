@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import financeApi from "../api/finance";
 import { fmtEUR as fmt } from "../utils/format";
+import MultiCategorySelect from "../components/MultiCategorySelect";
 
 export default function Transactions() {
   const [data, setData] = useState({ items: [], total: 0, page: 1, pages: 1 });
@@ -8,9 +9,10 @@ export default function Transactions() {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
-    account_id: "", type_id: "", category_id: "",
+    q: "", account_id: "", type_id: "", category_id: "",
     date_from: "", date_to: "", page: 1, per_page: 50,
   });
+  const debounceRef = useRef();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -31,7 +33,14 @@ export default function Transactions() {
 
   useEffect(() => { load(); }, [load]);
 
+  const [searchInput, setSearchInput] = useState("");
   const setFilter = (key, val) => setFilters((f) => ({ ...f, [key]: val, page: 1 }));
+
+  const handleSearch = (val) => {
+    setSearchInput(val);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setFilter("q", val), 350);
+  };
 
   const catMap = Object.fromEntries((catalogues?.categories || []).map((c) => [c.id, c]));
   const typeMap = Object.fromEntries((catalogues?.types || []).map((t) => [t.id, t]));
@@ -51,6 +60,15 @@ export default function Transactions() {
         </p>
       </div>
 
+      {/* Búsqueda */}
+      <div className="relative mb-3 max-w-md">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-navy-500">🔍</span>
+        <input value={searchInput} onChange={(e) => handleSearch(e.target.value)}
+          placeholder="Buscar por empresa, descripción, comentario o subcategoría…"
+          className="w-full bg-navy-900 border border-navy-600 text-white rounded-lg pl-9 pr-3 py-2 text-sm
+                     placeholder-navy-500 focus:outline-none focus:border-champagne transition" />
+      </div>
+
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-5">
         <select value={filters.account_id} onChange={(e) => setFilter("account_id", e.target.value)}
@@ -65,11 +83,9 @@ export default function Transactions() {
           {(catalogues?.types || []).map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
         </select>
 
-        <select value={filters.category_id} onChange={(e) => setFilter("category_id", e.target.value)}
-          className={selectCls}>
-          <option value="">Todas las categorías</option>
-          {(catalogues?.categories || []).map((c) => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
-        </select>
+        <MultiCategorySelect categories={catalogues?.categories || []}
+          value={filters.category_id ? filters.category_id.split(",") : []}
+          onChange={(arr) => setFilter("category_id", arr.join(","))} />
 
         <input type="date" value={filters.date_from}
           onChange={(e) => setFilter("date_from", e.target.value)}
@@ -79,7 +95,7 @@ export default function Transactions() {
           className={selectCls} />
 
         {Object.values(filters).some((v) => v !== "" && v !== 1 && v !== 50) && (
-          <button onClick={() => setFilters({ account_id: "", type_id: "", category_id: "", date_from: "", date_to: "", page: 1, per_page: 50 })}
+          <button onClick={() => { setSearchInput(""); setFilters({ q: "", account_id: "", type_id: "", category_id: "", date_from: "", date_to: "", page: 1, per_page: 50 }); }}
             className="text-sm text-navy-400 hover:text-white transition border border-navy-700 rounded-lg px-3 py-2">
             ✕ Limpiar
           </button>

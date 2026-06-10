@@ -451,15 +451,24 @@ def _annual_matrix(user_id: str, year: int) -> list[dict]:
     TYPE_ORDER = {"T01": 0, "T02": 1, "T04": 2, "T05": 3}
     CLASS_ORDER = {"C01": 0, "C02": 1, "C03": 2, "C04": 3}
 
+    # Mes de corte para el YTD: mes actual si es el año en curso, si no diciembre
+    from datetime import date as _date
+    today = _date.today()
+    ytd_month = today.month if today.year == year else 12
+
     out = []
     for (cl, cat), r in rows.items():
         cells = []
         tot_b = tot_a = 0.0
+        ytd_b = ytd_a = 0.0
         for m in range(1, 13):
             b = round(r["budget"].get(m, 0.0), 2)
             a = round(r["actual"].get(m, 0.0), 2)
             tot_b += b
             tot_a += a
+            if m <= ytd_month:
+                ytd_b += b
+                ytd_a += a
             cells.append({
                 "month": m, "budget": b, "actual": a,
                 "pct": round(a / b * 100, 1) if b > 0 else None,
@@ -477,6 +486,10 @@ def _annual_matrix(user_id: str, year: int) -> list[dict]:
             "total_budget": round(tot_b, 2),
             "total_actual": round(tot_a, 2),
             "total_pct": round(tot_a / tot_b * 100, 1) if tot_b > 0 else None,
+            # YTD: solo hasta el mes actual (no distorsiona con presupuesto futuro)
+            "ytd_budget": round(ytd_b, 2),
+            "ytd_actual": round(ytd_a, 2),
+            "ytd_pct": round(ytd_a / ytd_b * 100, 1) if ytd_b > 0 else None,
         })
     out.sort(key=lambda r: (TYPE_ORDER.get(r["type_id"], 99),
                             CLASS_ORDER.get(r["class_id"], 99),

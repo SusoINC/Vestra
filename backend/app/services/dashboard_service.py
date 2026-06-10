@@ -21,7 +21,8 @@ def _month_flows(user_id: str, year: int) -> list[dict]:
         extract("year", Transaction.op_date) == year,
     ).group_by("m", Transaction.type_id)
 
-    flows = {m: {"month": m, "income": 0.0, "expense": 0.0, "investment": 0.0}
+    flows = {m: {"month": m, "income": 0.0, "expense": 0.0,
+                 "investment": 0.0, "savings": 0.0}
              for m in range(1, 13)}
     for row in db.session.execute(q):
         m = int(row.m)
@@ -32,13 +33,16 @@ def _month_flows(user_id: str, year: int) -> list[dict]:
             flows[m]["expense"] += abs(total)
         elif row.type_id == "T04":
             flows[m]["investment"] += abs(total)
-    # net (ahorro) = ingresos - gastos
+        elif row.type_id == "T06":
+            flows[m]["savings"] += abs(total)
     for m in flows:
         f = flows[m]
-        f["net"] = round(f["income"] - f["expense"], 2)
+        f["net"] = round(f["income"] - f["expense"], 2)          # ahorro neto
+        f["saved"] = round(f["investment"] + f["savings"], 2)    # apartado (inv + ahorro)
         f["income"] = round(f["income"], 2)
         f["expense"] = round(f["expense"], 2)
         f["investment"] = round(f["investment"], 2)
+        f["savings"] = round(f["savings"], 2)
     return [flows[m] for m in range(1, 13)]
 
 
@@ -104,12 +108,13 @@ def _ytd_kpis(user_id: str, year: int) -> dict:
         extract("year", Transaction.op_date) == year,
         extract("month", Transaction.op_date) <= upto_month,
     ).group_by(Transaction.type_id)
-    income = expense = investment = 0.0
+    income = expense = investment = savings = 0.0
     for tid, total in db.session.execute(q):
         total = float(total or 0)
         if tid == "T01": income += total
         elif tid == "T02": expense += abs(total)
         elif tid == "T04": investment += abs(total)
+        elif tid == "T06": savings += abs(total)
 
     # Presupuesto de gastos YTD (líneas con mes <= upto_month, o anuales prorrateadas)
     bq = select(func.sum(Budget.amount)).where(
@@ -130,6 +135,8 @@ def _ytd_kpis(user_id: str, year: int) -> dict:
         "income_ytd": round(income, 2),
         "expense_ytd": round(expense, 2),
         "investment_ytd": round(investment, 2),
+        "savings_ytd": round(savings, 2),
+        "saved_ytd": round(investment + savings, 2),
         "net_ytd": round(income - expense, 2),
         "budget_expense_ytd": round(budget_exp, 2),
         "rating_ytd": rating,

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import financeApi from "../api/finance";
 import useFinanceStore from "../store/financeStore";
 import { fmtEUR as fmt } from "../utils/format";
+import MultiCategorySelect from "../components/MultiCategorySelect";
 
 const inputCls =
   "w-full bg-navy-900 border border-navy-600 text-white rounded-lg px-3 py-2 text-sm " +
@@ -325,7 +326,7 @@ export default function EditTransactions() {
             ref={searchRef}
             value={filters.q}
             onChange={(e) => handleSearch(e.target.value)}
-            placeholder="Buscar por empresa, descripción o comentario…"
+            placeholder="Buscar por empresa, descripción, comentario o subcategoría…"
             className={inputCls + " pl-9"}
           />
         </div>
@@ -355,11 +356,9 @@ export default function EditTransactions() {
           <option value="">Todos los tipos</option>
           {(catalogues?.types || []).map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
         </select>
-        <select value={filters.category_id} onChange={(e) => setFilter("category_id", e.target.value)}
-          className={selectCls}>
-          <option value="">Todas las categorías</option>
-          {(catalogues?.categories || []).map((c) => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
-        </select>
+        <MultiCategorySelect categories={catalogues?.categories || []}
+          value={filters.category_id ? filters.category_id.split(",") : []}
+          onChange={(arr) => setFilter("category_id", arr.join(","))} />
         <input type="date" value={filters.date_from}
           onChange={(e) => setFilter("date_from", e.target.value)} className={selectCls} />
         <input type="date" value={filters.date_to}

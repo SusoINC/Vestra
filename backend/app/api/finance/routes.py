@@ -90,6 +90,7 @@ def import_excel():
 def list_transactions():
     user = get_current_user()
     filters = {
+        "q":          request.args.get("q", "").strip(),
         "account_id": request.args.get("account_id"),
         "type_id":    request.args.get("type_id"),
         "category_id":request.args.get("category_id"),

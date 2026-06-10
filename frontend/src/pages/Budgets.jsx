@@ -27,35 +27,66 @@ const inputCls =
   "w-full bg-navy-900 border border-navy-600 text-white rounded-lg px-3 py-2 text-sm " +
   "focus:outline-none focus:border-champagne focus:ring-1 focus:ring-champagne transition disabled:opacity-40";
 
-// Color de la barra según % consumido
-function barColor(pct) {
+// Color de la barra según % consumido (ingresos: lógica invertida)
+function barColor(pct, isIncome) {
   if (pct == null) return "bg-navy-600";
+  if (isIncome) {
+    if (pct >= 100) return "bg-green-500";
+    if (pct >= 90) return "bg-amber-500";
+    return "bg-red-500";
+  }
   if (pct <= 80) return "bg-green-500";
   if (pct <= 100) return "bg-amber-500";
   return "bg-red-500";
 }
 
-// Color de fondo de celda de la matriz (rating)
-function cellStyle(cell) {
-  const { pct, budget, actual } = cell;
+// Texto de color del rating (clase Tailwind)
+function ratingText(pct, isIncome) {
+  if (pct == null) return "text-navy-400";
+  if (isIncome) {
+    if (pct >= 100) return "text-green-400";
+    if (pct >= 90) return "text-amber-400";
+    return "text-red-400";
+  }
+  if (pct > 110) return "text-red-400";
+  if (pct > 100) return "text-amber-400";
+  return "text-green-400";
+}
+
+// Color de fondo de celda de la matriz (rating). Ingresos invertido.
+function cellStyle(cell, isIncome) {
+  const G = { background: "rgba(34,197,94,0.22)", color: "#4ade80" };
+  const L = { background: "rgba(132,204,22,0.20)", color: "#a3e635" };
+  const A = { background: "rgba(234,179,8,0.25)", color: "#fbbf24" };
+  const O = { background: "rgba(249,115,22,0.28)", color: "#fb923c" };
+  const R = { background: "rgba(239,68,68,0.32)", color: "#f87171" };
+  const { pct, actual } = cell;
   if (pct == null) {
-    if (actual > 0) return { background: "rgba(100,116,139,0.25)", color: "#94a3b8" }; // gasto sin ppto
+    if (actual > 0) return { background: "rgba(100,116,139,0.25)", color: "#94a3b8" };
     return { background: "transparent", color: "#334155" };
   }
-  // verde (sobrado) → ámbar (justo) → rojo (excedido)
-  if (pct <= 75) return { background: "rgba(34,197,94,0.22)", color: "#4ade80" };
-  if (pct <= 100) return { background: "rgba(132,204,22,0.20)", color: "#a3e635" };
-  if (pct <= 110) return { background: "rgba(234,179,8,0.25)", color: "#fbbf24" };
-  if (pct <= 130) return { background: "rgba(249,115,22,0.28)", color: "#fb923c" };
-  return { background: "rgba(239,68,68,0.32)", color: "#f87171" };
+  if (isIncome) {
+    // ingresos: cobrar >=100% es bueno (verde), por debajo es malo
+    if (pct >= 100) return G;
+    if (pct >= 90) return L;
+    if (pct >= 75) return A;
+    if (pct >= 50) return O;
+    return R;
+  }
+  // gastos: gastar poco es bueno (verde), pasarse es malo
+  if (pct <= 75) return G;
+  if (pct <= 100) return L;
+  if (pct <= 110) return A;
+  if (pct <= 130) return O;
+  return R;
 }
 
 // ── Progress bar ──────────────────────────────────────────────────────────────
-function ProgressBar({ pct }) {
+function ProgressBar({ pct, isIncome }) {
   const width = pct == null ? 0 : Math.min(pct, 100);
   return (
     <div className="w-full h-2 bg-navy-900 rounded-full overflow-hidden">
-      <div className={`h-full ${barColor(pct)} transition-all`} style={{ width: `${width}%` }} />
+      <div className={`h-full ${barColor(pct, isIncome)} transition-all`} style={{ width: `${width}%` }} />
     </div>
   );
 }
@@ -63,6 +94,9 @@ function ProgressBar({ pct }) {
 // ── Tarjeta de categoría ────────────────────────────────────────────────────────
 function CategoryCard({ c, isOpen, onToggle }) {
   const hasSubs = c.subcategories.length > 0;
+  const isIncome = c.type_id === "T01";
+  // Para ingresos, "remaining" positivo significa que falta por cobrar (no es bueno)
+  const remainingOk = isIncome ? c.remaining <= 0 : c.remaining >= 0;
   return (
     <div className="bg-navy-800 border border-navy-700 rounded-xl overflow-hidden">
       <div className="p-4">
@@ -79,17 +113,19 @@ function CategoryCard({ c, isOpen, onToggle }) {
             )}
           </div>
           <div className="text-right text-sm">
-            <span className={c.pct > 100 ? "text-red-400" : "text-white"}>{fmt(c.actual)}</span>
+            <span className="text-white">{fmt(c.actual)}</span>
             <span className="text-navy-500"> / {fmt(c.budget)}</span>
             {c.pct != null && (
-              <span className={`ml-2 text-xs ${c.pct > 100 ? "text-red-400" : "text-navy-400"}`}>{c.pct}%</span>
+              <span className={`ml-2 text-xs ${ratingText(c.pct, isIncome)}`}>{c.pct}%</span>
             )}
           </div>
         </div>
-        {c.has_budget && <ProgressBar pct={c.pct} />}
+        {c.has_budget && <ProgressBar pct={c.pct} isIncome={isIncome} />}
         {c.has_budget && (
-          <p className={`text-xs mt-1 ${c.remaining >= 0 ? "text-green-400" : "text-red-400"}`}>
-            {c.remaining >= 0 ? `Quedan ${fmt(c.remaining)}` : `Excedido ${fmt(-c.remaining)}`}
+          <p className={`text-xs mt-1 ${remainingOk ? "text-green-400" : "text-amber-400"}`}>
+            {isIncome
+              ? (c.remaining <= 0 ? `Objetivo cumplido (+${fmt(-c.remaining)})` : `Faltan ${fmt(c.remaining)}`)
+              : (c.remaining >= 0 ? `Quedan ${fmt(c.remaining)}` : `Excedido ${fmt(-c.remaining)}`)}
           </p>
         )}
       </div>
@@ -571,13 +607,15 @@ export default function Budgets() {
                       {MONTHS.map((m) => (
                         <th key={m} className="px-1 py-1 text-navy-500 font-medium w-12 text-center">{m}</th>
                       ))}
-                      <th className="px-2 py-1 text-navy-400 font-medium text-center">Año</th>
+                      <th className="px-2 py-1 text-navy-400 font-medium text-center">YTD</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(annual.matrix || []).map((row, i) => {
                       const prev = annual.matrix[i - 1];
                       const showType = !prev || prev.type_id !== row.type_id;
+                      const inc = row.type_id === "T01";
+                      const ytdCell = { pct: row.ytd_pct, budget: row.ytd_budget, actual: row.ytd_actual };
                       return (
                         <Fragment key={`${row.class_id}-${row.category_id}`}>
                           {showType && (
@@ -594,7 +632,7 @@ export default function Budgets() {
                             </td>
                             {row.cells.map((cell) => (
                               <td key={cell.month} className="text-center rounded"
-                                style={{ ...cellStyle(cell), width: 44, height: 26 }}
+                                style={{ ...cellStyle(cell, inc), width: 44, height: 26 }}
                                 title={cell.budget || cell.actual
                                   ? `${MONTHS[cell.month - 1]}: real ${fmt(cell.actual)} / ppto ${fmt(cell.budget)}`
                                   : ""}>
@@ -602,9 +640,9 @@ export default function Budgets() {
                               </td>
                             ))}
                             <td className="text-center rounded font-semibold"
-                              style={{ ...cellStyle({ pct: row.total_pct, budget: row.total_budget, actual: row.total_actual }), width: 52, height: 26 }}
-                              title={`Año: real ${fmt(row.total_actual)} / ppto ${fmt(row.total_budget)}`}>
-                              {row.total_pct != null ? `${Math.round(row.total_pct)}%` : "·"}
+                              style={{ ...cellStyle(ytdCell, inc), width: 52, height: 26 }}
+                              title={`YTD: real ${fmt(row.ytd_actual)} / ppto ${fmt(row.ytd_budget)}`}>
+                              {row.ytd_pct != null ? `${Math.round(row.ytd_pct)}%` : "·"}
                             </td>
                           </tr>
                         </Fragment>
@@ -682,7 +720,9 @@ export default function Budgets() {
         </div>
       ) : (
         <div className="space-y-7">
-          {comparison.groups.map((g) => (
+          {comparison.groups.map((g) => {
+            const gIncome = g.type_id === "T01";
+            return (
             <div key={g.type_id || "none"}>
               {/* Cabecera de TIPO con rating */}
               <div className="flex items-center justify-between mb-3 pb-1 border-b border-navy-700">
@@ -690,10 +730,10 @@ export default function Budgets() {
                   {g.type_label}
                 </h2>
                 <div className="text-sm">
-                  <span className={g.pct > 100 ? "text-red-400" : "text-navy-200"}>{fmt(g.actual)}</span>
+                  <span className="text-navy-200">{fmt(g.actual)}</span>
                   <span className="text-navy-500"> / {fmt(g.budget)}</span>
                   {g.pct != null && (
-                    <span className={`ml-2 font-semibold ${g.pct > 100 ? "text-red-400" : g.pct > 80 ? "text-amber-400" : "text-green-400"}`}>
+                    <span className={`ml-2 font-semibold ${ratingText(g.pct, gIncome)}`}>
                       {g.pct}%
                     </span>
                   )}
@@ -709,10 +749,10 @@ export default function Budgets() {
                         {cl.class_label}
                       </h3>
                       <div className="text-xs">
-                        <span className={cl.pct > 100 ? "text-red-400" : "text-navy-300"}>{fmt(cl.actual)}</span>
+                        <span className="text-navy-300">{fmt(cl.actual)}</span>
                         <span className="text-navy-600"> / {fmt(cl.budget)}</span>
                         {cl.pct != null && (
-                          <span className={`ml-2 font-semibold ${cl.pct > 100 ? "text-red-400" : cl.pct > 80 ? "text-amber-400" : "text-green-400"}`}>
+                          <span className={`ml-2 font-semibold ${ratingText(cl.pct, gIncome)}`}>
                             {cl.pct}%
                           </span>
                         )}
@@ -732,7 +772,8 @@ export default function Budgets() {
                 ))}
               </div>
             </div>
-          ))}
+            );
+          })}
 
           {/* Sin categoría — movimientos y presupuesto sin categorizar */}
           {comparison.uncategorized && (
