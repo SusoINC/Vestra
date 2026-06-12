@@ -27,14 +27,15 @@ def _month_flows(user_id: str, year: int) -> list[dict]:
     for row in db.session.execute(q):
         m = int(row.m)
         total = float(row.total or 0)
+        # Entradas en positivo; salidas (gasto/inv/ahorro) = -total (reembolsos restan)
         if row.type_id == "T01":
             flows[m]["income"] += total
         elif row.type_id == "T02":
-            flows[m]["expense"] += abs(total)
+            flows[m]["expense"] += -total
         elif row.type_id == "T04":
-            flows[m]["investment"] += abs(total)
+            flows[m]["investment"] += -total
         elif row.type_id == "T06":
-            flows[m]["savings"] += abs(total)
+            flows[m]["savings"] += -total
     for m in flows:
         f = flows[m]
         f["net"] = round(f["income"] - f["expense"], 2)          # ahorro neto
@@ -57,8 +58,13 @@ def _daily_expense(user_id: str, year: int) -> list[dict]:
         Transaction.type_id == "T02",
         extract("year", Transaction.op_date) == year,
     ).group_by(Transaction.op_date)
-    return [{"date": row.op_date.isoformat(), "amount": round(abs(float(row.total or 0)), 2)}
-            for row in db.session.execute(q)]
+    # Gasto del día = -suma (T02). Días con saldo neto a favor (reembolso) → 0.
+    out = []
+    for row in db.session.execute(q):
+        spent = -float(row.total or 0)
+        if spent > 0:
+            out.append({"date": row.op_date.isoformat(), "amount": round(spent, 2)})
+    return out
 
 
 def _top_categories(user_id: str, year: int, limit: int = 6) -> list[dict]:
@@ -75,7 +81,9 @@ def _top_categories(user_id: str, year: int, limit: int = 6) -> list[dict]:
     ).group_by(Transaction.category_id)
 
     cats = {c.id: c for c in db.session.execute(select(TxCategory)).scalars().all()}
-    rows = [(row.category_id, abs(float(row.total or 0))) for row in db.session.execute(q)]
+    # Gasto = -suma; solo categorías con gasto neto positivo para el donut
+    rows = [(row.category_id, -float(row.total or 0)) for row in db.session.execute(q)]
+    rows = [r for r in rows if r[1] > 0]
     rows.sort(key=lambda x: -x[1])
     result = []
     for cat_id, total in rows[:limit]:
@@ -112,9 +120,9 @@ def _ytd_kpis(user_id: str, year: int) -> dict:
     for tid, total in db.session.execute(q):
         total = float(total or 0)
         if tid == "T01": income += total
-        elif tid == "T02": expense += abs(total)
-        elif tid == "T04": investment += abs(total)
-        elif tid == "T06": savings += abs(total)
+        elif tid == "T02": expense += -total
+        elif tid == "T04": investment += -total
+        elif tid == "T06": savings += -total
 
     # Presupuesto de gastos YTD (líneas con mes <= upto_month, o anuales prorrateadas)
     bq = select(func.sum(Budget.amount)).where(

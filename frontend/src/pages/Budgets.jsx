@@ -541,13 +541,14 @@ export default function Budgets() {
         !annual ? (
           <p className="text-navy-400">Sin datos.</p>
         ) : (
-          <div className="space-y-4">
-            <div className="bg-navy-800 border border-navy-700 rounded-xl p-5">
-              <p className="text-navy-300 text-sm font-medium mb-3">
-                Presupuesto vs gasto real por mes · {year}
+          <div className="flex flex-col gap-4">
+            <div className="order-2 bg-navy-800 border border-navy-700 rounded-xl p-5">
+              <p className="text-navy-300 text-sm font-medium mb-1">Balance mensual · {year}</p>
+              <p className="text-navy-500 text-xs mb-3">
+                Ingresos vs destino del dinero (gasto + inversión + ahorro) · líneas punteadas = presupuesto
               </p>
-              <ResponsiveContainer width="100%" height={280}>
-                <ComposedChart data={annual.monthly}>
+              <ResponsiveContainer width="100%" height={300}>
+                <ComposedChart data={annual.monthly} barGap={2}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#21305a" vertical={false} />
                   <XAxis dataKey="month" tickFormatter={(m) => MONTHS[m - 1]}
                     tick={{ fill: "#7f94bc", fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -555,14 +556,22 @@ export default function Budgets() {
                     tickFormatter={(v) => v >= 1000 ? `${v / 1000}k` : v} />
                   <Tooltip content={<DarkTooltip />} cursor={{ fill: "#ffffff08" }} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="budget" name="Presupuesto" fill="#3a5490" radius={[3, 3, 0, 0]} />
-                  <Line type="monotone" dataKey="actual" name="Real" stroke="#c9922a" strokeWidth={2}
-                    dot={{ r: 3, fill: "#c9922a" }} />
+                  {/* Columna de ingresos */}
+                  <Bar dataKey="income" name="Ingresos" stackId="in" fill="#22c55e" radius={[3, 3, 0, 0]} />
+                  {/* Columna de salidas apiladas */}
+                  <Bar dataKey="expense" name="Gastos" stackId="out" fill="#ef4444" />
+                  <Bar dataKey="investment" name="Inversión" stackId="out" fill="#c9922a" />
+                  <Bar dataKey="savings" name="Ahorro" stackId="out" fill="#2dd4bf" radius={[3, 3, 0, 0]} />
+                  {/* Presupuestos como líneas punteadas */}
+                  <Line type="monotone" dataKey="income_budget" name="Ppto ingresos" stroke="#22c55e"
+                    strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+                  <Line type="monotone" dataKey="out_budget" name="Ppto salidas" stroke="#94a3b8"
+                    strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
 
-            <div className="bg-navy-800 border border-navy-700 rounded-xl p-5">
+            <div className="order-3 bg-navy-800 border border-navy-700 rounded-xl p-5">
               <p className="text-navy-300 text-sm font-medium mb-3">
                 Evolución del gasto por categoría (top 6)
               </p>
@@ -592,7 +601,7 @@ export default function Budgets() {
             </div>
 
             {/* Matriz budget status: meses × clase-categoría con rating + color */}
-            <div className="bg-navy-800 border border-navy-700 rounded-xl p-5">
+            <div className="order-1 bg-navy-800 border border-navy-700 rounded-xl p-5">
               <p className="text-navy-300 text-sm font-medium mb-1">Estado del presupuesto</p>
               <p className="text-navy-500 text-xs mb-3">
                 % gastado sobre presupuesto · pasa el ratón por una celda para ver importes
@@ -684,7 +693,16 @@ export default function Budgets() {
                 </tr>
               </thead>
               <tbody>
-                {lines.map((b, i) => (
+                {[...lines].sort((a, b) => {
+                  const TO = { T01: 0, T02: 1, T04: 2, T05: 3, T06: 4 };
+                  const ta = TO[a.type_id] ?? 9, tb = TO[b.type_id] ?? 9;
+                  if (ta !== tb) return ta - tb;
+                  const ca = catMap[a.category_id]?.label || "", cb = catMap[b.category_id]?.label || "";
+                  if (ca !== cb) return ca.localeCompare(cb);
+                  const sa = subMap[a.subcategory_id]?.label || "", sb = subMap[b.subcategory_id]?.label || "";
+                  if (sa !== sb) return sa.localeCompare(sb);
+                  return (a.month || 0) - (b.month || 0);
+                }).map((b, i) => (
                   <tr key={b.id} className={`border-b border-navy-700/50 hover:bg-navy-700/20 ${i % 2 ? "bg-navy-900/20" : ""}`}>
                     <td className="px-4 py-2.5 text-navy-300">
                       {b.month ? `${String(b.day || 1).padStart(2, "0")} ${MONTHS[b.month - 1]}` : "Anual"}

@@ -40,7 +40,8 @@ def list_budgets(user_id: str, year: int, month: int | None) -> list[Budget]:
         q = q.where(Budget.month == month)
     # month is None → vista anual: devuelve TODO (mensuales + anuales)
     return db.session.execute(
-        q.order_by(Budget.category_id, Budget.subcategory_id)
+        q.order_by(Budget.type_id, Budget.category_id,
+                   Budget.subcategory_id.nullsfirst(), Budget.month, Budget.day)
     ).scalars().all()
 
 
@@ -133,9 +134,19 @@ def delete_budget(b: Budget) -> None:
 
 # ── Comparativa presupuesto vs real ─────────────────────────────────────────
 
+def report_value(type_id: str | None, total: float) -> float:
+    """
+    Magnitud de reporting respetando el signo:
+      - Ingreso (T01): entradas en positivo → tal cual.
+      - Resto (gasto/inversión/ahorro/deuda): salida en positivo → -total.
+        Un reembolso (importe positivo en una categoría de gasto) RESTA.
+    """
+    return total if type_id == "T01" else -total
+
+
 def _actuals(user_id: str, year: int, month: int | None) -> dict:
     """
-    Gasto/ingreso real agregado por (class_id, category_id, subcategory_id).
+    Gasto/ingreso real (con signo) por (class_id, category_id, subcategory_id).
     Solo movimientos 'hechos': is_split=False AND category_id IS NOT NULL.
     """
     q = select(
@@ -155,14 +166,15 @@ def _actuals(user_id: str, year: int, month: int | None) -> dict:
     q = q.group_by(Transaction.type_id, Transaction.class_id,
                    Transaction.category_id, Transaction.subcategory_id)
 
-    by_ccs = {}           # (class, cat, sub) -> signed sum
-    by_cc = {}            # (class, cat) -> signed sum
+    by_ccs = {}           # (class, cat, sub) -> valor de reporting (con signo)
+    by_cc = {}            # (class, cat) -> valor de reporting
     cat_type_weight = {}  # cat -> {type: abs} para el tipo predominante
     for row in db.session.execute(q):
         cl, cat, sub, total = (row.class_id, row.category_id,
                                row.subcategory_id, float(row.total or 0))
-        by_ccs[(cl, cat, sub)] = by_ccs.get((cl, cat, sub), 0) + total
-        by_cc[(cl, cat)] = by_cc.get((cl, cat), 0) + total
+        rep = report_value(row.type_id, total)
+        by_ccs[(cl, cat, sub)] = by_ccs.get((cl, cat, sub), 0) + rep
+        by_cc[(cl, cat)] = by_cc.get((cl, cat), 0) + rep
         if row.type_id:
             cat_type_weight.setdefault(cat, {})
             cat_type_weight[cat][row.type_id] = \
@@ -219,7 +231,7 @@ def comparison(user_id: str, year: int, month: int | None) -> dict:
         cat_info = cats.get(cat)
         cb = cc_budgets.get((cl, cat), {"cat_level": 0.0, "subs": {}, "type": None, "ids": []})
         budget_node = cb["cat_level"] + sum(cb["subs"].values())
-        actual_node = abs(by_cc.get((cl, cat), 0.0))
+        actual_node = by_cc.get((cl, cat), 0.0)  # ya con signo (reembolsos restan)
 
         # Subcategorías de esta clase+categoría
         budgeted_subs = set(cb["subs"].keys())
@@ -231,7 +243,7 @@ def comparison(user_id: str, year: int, month: int | None) -> dict:
                 "subcategory_id": sub_id,
                 "subcategory_label": sinfo.label if sinfo else "?",
                 "budget": round(cb["subs"].get(sub_id, 0.0), 2),
-                "actual": round(abs(by_ccs.get((cl, cat, sub_id), 0.0)), 2),
+                "actual": round(by_ccs.get((cl, cat, sub_id), 0.0), 2),
                 "budgeted": sub_id in budgeted_subs,
             })
         sub_rows.sort(key=lambda x: (-x["budget"], -x["actual"]))
@@ -303,7 +315,8 @@ def comparison(user_id: str, year: int, month: int | None) -> dict:
     if month is not None:
         unq = unq.where(extract("month", Transaction.op_date) == month)
     urow = db.session.execute(unq).first()
-    uncat_actual = abs(float(urow[0] or 0))
+    # Sin categoría son salidas pendientes → mostramos -suma (un reembolso resta)
+    uncat_actual = -float(urow[0] or 0)
     uncat_count = int(urow[1] or 0)
 
     # Líneas de presupuesto sin categoría (de las del período)
@@ -357,29 +370,51 @@ def annual_summary(user_id: str, year: int) -> dict:
     cat_total = {}  # cat -> total año
     for row in db.session.execute(q):
         m = int(row.m)
-        amt = abs(float(row.total or 0))
+        amt = -float(row.total or 0)  # gasto (T02): salida positiva, reembolso resta
         actual_by_month[m] += amt
         cat_month.setdefault(row.category_id, {})[m] = amt
         cat_total[row.category_id] = cat_total.get(row.category_id, 0) + amt
 
-    # Presupuesto de gastos (T02) por mes
-    bq = select(
-        Budget.month, func.sum(Budget.amount).label("total"),
+    # ── Balance mensual: ingresos vs gastos/inversión/ahorro (real y ppto) ──
+    # Real por (mes, tipo)
+    aq2 = select(
+        extract("month", Transaction.op_date).label("m"),
+        Transaction.type_id, func.sum(Transaction.amount),
     ).where(
-        Budget.user_id == user_id,
-        Budget.year == year,
-        Budget.type_id == "T02",
-        Budget.month != None,
-    ).group_by(Budget.month)
-    budget_by_month = {m: 0.0 for m in range(1, 13)}
-    for row in db.session.execute(bq):
-        budget_by_month[int(row.month)] = float(row.total or 0)
+        Transaction.user_id == user_id,
+        Transaction.is_split == False,
+        Transaction.category_id != None,
+        extract("year", Transaction.op_date) == year,
+    ).group_by("m", Transaction.type_id)
+    act = {}  # (mes, tipo) -> valor reporting
+    for m, tid, total in db.session.execute(aq2):
+        act[(int(m), tid)] = act.get((int(m), tid), 0) + report_value(tid, float(total or 0))
 
-    monthly = [{
-        "month": m,
-        "budget": round(budget_by_month[m], 2),
-        "actual": round(actual_by_month[m], 2),
-    } for m in range(1, 13)]
+    # Presupuesto por (mes, tipo)
+    bq = select(
+        Budget.month, Budget.type_id, func.sum(Budget.amount),
+    ).where(
+        Budget.user_id == user_id, Budget.year == year, Budget.month != None,
+    ).group_by(Budget.month, Budget.type_id)
+    bud = {}
+    for m, tid, total in db.session.execute(bq):
+        bud[(int(m), tid)] = bud.get((int(m), tid), 0) + float(total or 0)
+
+    monthly = []
+    for m in range(1, 13):
+        inc_a, inc_b = act.get((m, "T01"), 0), bud.get((m, "T01"), 0)
+        exp_a, exp_b = act.get((m, "T02"), 0), bud.get((m, "T02"), 0)
+        inv_a, inv_b = act.get((m, "T04"), 0), bud.get((m, "T04"), 0)
+        sav_a, sav_b = act.get((m, "T06"), 0), bud.get((m, "T06"), 0)
+        monthly.append({
+            "month": m,
+            "income": round(inc_a, 2), "income_budget": round(inc_b, 2),
+            "expense": round(exp_a, 2), "expense_budget": round(exp_b, 2),
+            "investment": round(inv_a, 2), "investment_budget": round(inv_b, 2),
+            "savings": round(sav_a, 2), "savings_budget": round(sav_b, 2),
+            "out_actual": round(exp_a + inv_a + sav_a, 2),
+            "out_budget": round(exp_b + inv_b + sav_b, 2),
+        })
 
     # Top categorías por gasto anual → series mensuales para líneas
     cats = {c.id: c for c in db.session.execute(select(TxCategory)).scalars().all()}
@@ -446,7 +481,9 @@ def _annual_matrix(user_id: str, year: int) -> list[dict]:
     ).group_by(Transaction.type_id, Transaction.class_id, Transaction.category_id, "m")
 
     for tid, cl, cat, m, amt in db.session.execute(aq):
-        _row(cl, cat, tid)["actual"][int(m)] = abs(float(amt or 0))
+        # Mismo (class,cat) puede tener varias filas por tipo → acumular con signo
+        rd = _row(cl, cat, tid)["actual"]
+        rd[int(m)] = rd.get(int(m), 0.0) + report_value(tid, float(amt or 0))
 
     TYPE_ORDER = {"T01": 0, "T02": 1, "T04": 2, "T05": 3}
     CLASS_ORDER = {"C01": 0, "C02": 1, "C03": 2, "C04": 3}
