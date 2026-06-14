@@ -1,4 +1,15 @@
 import axiosClient from "./client";
 
-// investment API calls — to be implemented in upcoming deliverables
-export default {};
+const investmentApi = {
+  getCatalogues: () => axiosClient.get("/investments/catalogues"),
+  getPortfolio: (params = {}) => axiosClient.get("/investments/portfolio", { params }),
+  getSymbolDetail: (ticker, params = {}) =>
+    axiosClient.get(`/investments/symbols/${encodeURIComponent(ticker)}`, { params }),
+  getWalletsSummary: () => axiosClient.get("/investments/wallets/summary"),
+  getOperations: (params = {}) => axiosClient.get("/investments/operations", { params }),
+  createOperation: (data) => axiosClient.post("/investments/operations", data),
+  updateOperation: (id, data) => axiosClient.put(`/investments/operations/${id}`, data),
+  deleteOperation: (id) => axiosClient.delete(`/investments/operations/${id}`),
+};
+
+export default investmentApi;

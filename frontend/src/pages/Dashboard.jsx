@@ -5,6 +5,7 @@ import {
 } from "recharts";
 import useAuthStore from "../store/authStore";
 import financeApi from "../api/finance";
+import investmentApi from "../api/investment";
 import { fmtEUR } from "../utils/format";
 import CalendarHeatmap from "../components/charts/CalendarHeatmap";
 import Gauge from "../components/charts/Gauge";
@@ -46,6 +47,7 @@ export default function Dashboard() {
   const user = useAuthStore((s) => s.user);
   const [year, setYear] = useState(new Date().getFullYear());
   const [data, setData] = useState(null);
+  const [invest, setInvest] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -54,6 +56,12 @@ export default function Dashboard() {
       .then((r) => setData(r.data.data))
       .finally(() => setLoading(false));
   }, [year]);
+
+  useEffect(() => {
+    investmentApi.getPortfolio()
+      .then((r) => setInvest(r.data.data.totals))
+      .catch(() => {});
+  }, []);
 
   const k = data?.kpis;
 
@@ -97,7 +105,9 @@ export default function Dashboard() {
               value={fmtEUR(k.net_ytd)}
               sub={k.savings_rate != null ? `Tasa ahorro ${k.savings_rate}%` : null} />
             <Kpi label="Inversiones" icon="📈" accent="text-champagne"
-              value="—" placeholder />
+              value={invest ? fmtEUR(invest.value) : "—"}
+              sub={invest && invest.pnl_pct != null
+                ? `${invest.pnl >= 0 ? "+" : ""}${invest.pnl_pct}% rentab.` : null} />
             <Kpi label="Vehículos" icon="🚗" accent="text-champagne"
               value="—" placeholder />
           </div>

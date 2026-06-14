@@ -67,11 +67,23 @@ export default function Sidebar() {
           <span>📥</span> Importar
         </NavLink>
 
+        {/* Inversiones */}
+        <p className="text-navy-500 text-xs font-semibold uppercase tracking-widest px-3 pb-1 pt-4">
+          Inversiones
+        </p>
+        <NavLink to="/investments" className={({ isActive }) => `${navItem} ${isActive ? active : inactive}`}>
+          <span>💼</span> Cartera
+        </NavLink>
+
+        <NavLink to="/symbol-analysis" className={({ isActive }) => `${navItem} ${isActive ? active : inactive}`}>
+          <span>🔎</span> Análisis símbolos
+        </NavLink>
+
         {/* Coming soon */}
         <p className="text-navy-500 text-xs font-semibold uppercase tracking-widest px-3 pb-1 pt-4">
           Próximamente
         </p>
-        {["💼 Inversiones", "🚗 Vehículos", "🔧 Proyectos"].map((label) => (
+        {["🚗 Vehículos", "🔧 Proyectos"].map((label) => (
           <div key={label} className={`${navItem} text-navy-600 cursor-not-allowed`}>
             <span>{label}</span>
           </div>
