@@ -19,8 +19,28 @@ def catalogues():
 @jwt_required()
 def portfolio():
     user = get_current_user()
-    wallet_id = request.args.get("wallet_id")
-    return ok(svc.portfolio(user.id, wallet_id))
+    return ok(svc.portfolio(
+        user.id,
+        request.args.get("wallet_id"),
+        request.args.get("platform_id"),
+        request.args.get("type"),
+        request.args.get("ticker"),
+    ))
+
+
+@bp.get("/portfolio/timeseries")
+@jwt_required()
+def portfolio_timeseries():
+    user = get_current_user()
+    return ok(svc.portfolio_timeseries(
+        user.id,
+        request.args.get("wallet_id"),
+        request.args.get("granularity", "month"),
+        request.args.get("range", "max"),
+        request.args.get("platform_id"),
+        request.args.get("type"),
+        request.args.get("ticker"),
+    ))
 
 
 @bp.get("/wallets/summary")
@@ -28,6 +48,24 @@ def portfolio():
 def wallets_summary():
     user = get_current_user()
     return ok(svc.wallets_summary(user.id))
+
+
+@bp.get("/platforms/summary")
+@jwt_required()
+def platforms_summary():
+    user = get_current_user()
+    return ok(svc.platforms_summary(
+        user.id, request.args.get("wallet_id"),
+        request.args.get("type"), request.args.get("ticker")))
+
+
+@bp.get("/types/summary")
+@jwt_required()
+def types_summary():
+    user = get_current_user()
+    return ok(svc.types_summary(
+        user.id, request.args.get("wallet_id"),
+        request.args.get("platform_id"), request.args.get("ticker")))
 
 
 @bp.get("/symbols/<path:ticker>")
@@ -48,6 +86,7 @@ def list_operations():
     filters = {
         "wallet_id": request.args.get("wallet_id"),
         "platform_id": request.args.get("platform_id"),
+        "type": request.args.get("type"),
         "ticker": request.args.get("ticker"),
         "page": request.args.get("page", 1),
         "per_page": request.args.get("per_page", 50),

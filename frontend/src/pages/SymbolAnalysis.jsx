@@ -90,6 +90,13 @@ export default function SymbolAnalysis() {
   const pos = data?.position;
   const up = s && s.range_pct != null && s.range_pct >= 0;
 
+  // Símbolos agrupados por tipo para el selector
+  const symbolGroups = useMemo(() => {
+    const g = {};
+    symbols.forEach((x) => { (g[x.type_label || x.type] = g[x.type_label || x.type] || []).push(x); });
+    return g;
+  }, [symbols]);
+
   // Serie del gráfico: valor o variación base-0, con operaciones ancladas a su fecha más cercana
   const chartData = useMemo(() => {
     const hist = data?.history || [];
@@ -122,7 +129,11 @@ export default function SymbolAnalysis() {
         </div>
         <select value={ticker} onChange={(e) => setTicker(e.target.value)}
           className="bg-navy-900 border border-navy-600 text-white rounded-lg px-3 py-2 text-sm max-w-xs">
-          {symbols.map((s) => <option key={s.ticker} value={s.ticker}>{s.description}</option>)}
+          {Object.entries(symbolGroups).map(([label, syms]) => (
+            <optgroup key={label} label={label}>
+              {syms.map((x) => <option key={x.ticker} value={x.ticker}>{x.description}</option>)}
+            </optgroup>
+          ))}
         </select>
       </div>
 

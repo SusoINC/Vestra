@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from bisect import bisect_right
 from datetime import date as date_type, timedelta
 from decimal import Decimal
 
@@ -61,48 +62,86 @@ TYPE_LABELS = {"CRY": "Cripto", "ETF": "ETF", "FND": "Fondo", "STK": "Acción"}
 TYPE_COLORS = {"CRY": "#f59e0b", "ETF": "#3b82f6", "FND": "#8b5cf6", "STK": "#22c55e"}
 
 
-def portfolio(user_id: str, wallet_id: str | None = None) -> dict:
+def _tickers_of_type(asset_type: str):
+    """Subconsulta con los tickers de un tipo de activo (para filtrar operaciones)."""
+    return select(Symbol.ticker).where(Symbol.type == asset_type)
+
+
+def _avg_cost(ops) -> tuple[float, float]:
+    """Participaciones y coste base por **coste medio**. ops = iterable de
+    (shares, amount, fee) en orden cronológico.
+
+    Compra (shares >= 0): suma importe + comisión al coste.
+    Venta (shares < 0): reduce el coste proporcionalmente (coste medio × part. vendidas),
+    NO por el importe de venta. Así el coste nunca se vuelve negativo y, al liquidar todo,
+    la base vuelve a 0 (solo cuentan las compras posteriores)."""
+    shares = 0.0
+    cost = 0.0
+    for s, amt, fee in ops:
+        s = float(s); amt = float(amt); fee = float(fee or 0)
+        if s >= 0:
+            cost += amt + fee
+            shares += s
+        elif shares > 1e-12:
+            avg = cost / shares
+            cost += avg * s          # s negativo → reduce el coste a coste medio
+            shares += s
+            if shares < 1e-9:        # liquidación total → base a 0
+                shares = cost = 0.0
+        else:
+            shares += s
+    return shares, cost
+
+
+def portfolio(user_id: str, wallet_id: str | None = None,
+              platform_id: str | None = None, asset_type: str | None = None,
+              ticker: str | None = None) -> dict:
     """
-    Posiciones actuales (agregadas por símbolo, opcionalmente filtradas por cartera).
-    valor = shares × último precio · coste = invertido + comisiones · P&L = valor − coste.
+    Posiciones actuales (por símbolo, filtrables por cartera, plataforma, tipo y activo).
+    valor = shares × último precio · coste = coste medio de lo que queda · P&L = valor − coste.
     """
     q = select(
-        WalletTransaction.ticker,
-        func.sum(WalletTransaction.shares).label("shares"),
-        func.sum(WalletTransaction.amount).label("invested"),
-        func.sum(WalletTransaction.fee).label("fees"),
+        WalletTransaction.ticker, WalletTransaction.op_date,
+        WalletTransaction.shares, WalletTransaction.amount, WalletTransaction.fee,
     ).where(WalletTransaction.user_id == user_id)
     if wallet_id:
         q = q.where(WalletTransaction.wallet_id == wallet_id)
-    q = q.group_by(WalletTransaction.ticker)
+    if platform_id:
+        q = q.where(WalletTransaction.platform_id == platform_id)
+    if asset_type:
+        q = q.where(WalletTransaction.ticker.in_(_tickers_of_type(asset_type)))
+    if ticker:
+        q = q.where(WalletTransaction.ticker == ticker)
+    q = q.order_by(WalletTransaction.ticker, WalletTransaction.op_date, WalletTransaction.id)
 
     prices = _latest_prices()
     symbols = {s.ticker: s for s in db.session.execute(select(Symbol)).scalars().all()}
 
+    # Operaciones agrupadas por ticker (ya en orden cronológico)
+    ops_by_ticker: dict[str, list] = {}
+    for r in db.session.execute(q):
+        ops_by_ticker.setdefault(r.ticker, []).append((r.shares, r.amount, r.fee))
+
     positions = []
     total_value = total_cost = 0.0
     by_type = {}
-    for row in db.session.execute(q):
-        shares = float(row.shares or 0)
+    for tk, ops in ops_by_ticker.items():
+        shares, cost = _avg_cost(ops)
         if abs(shares) < 1e-9:
             continue
-        invested = float(row.invested or 0)
-        fees = float(row.fees or 0)
-        cost = invested + fees
-        price, price_date = prices.get(row.ticker, (0.0, None))
+        price, price_date = prices.get(tk, (0.0, None))
         value = shares * price
         pnl = value - cost
-        sym = symbols.get(row.ticker)
+        sym = symbols.get(tk)
         stype = sym.type if sym else "STK"
 
         positions.append({
-            "ticker": row.ticker,
-            "description": sym.description if sym else row.ticker,
+            "ticker": tk,
+            "description": sym.description if sym else tk,
             "type": stype,
             "type_label": TYPE_LABELS.get(stype, stype),
             "shares": round(shares, 8),
-            "invested": round(invested, 2),
-            "fees": round(fees, 2),
+            "invested": round(cost, 2),
             "cost": round(cost, 2),
             "avg_cost": round(cost / shares, 6) if shares else 0,
             "price": round(price, 6),
@@ -114,14 +153,20 @@ def portfolio(user_id: str, wallet_id: str | None = None) -> dict:
         total_value += value
         total_cost += cost
         t = by_type.setdefault(stype, {"type": stype, "label": TYPE_LABELS.get(stype, stype),
-                                       "color": TYPE_COLORS.get(stype, "#888"), "value": 0.0})
+                                       "color": TYPE_COLORS.get(stype, "#888"),
+                                       "value": 0.0, "cost": 0.0, "pnl": 0.0})
         t["value"] += value
+        t["cost"] += cost
+        t["pnl"] += pnl
 
     positions.sort(key=lambda p: -p["value"])
     total_pnl = total_value - total_cost
     allocation = sorted(by_type.values(), key=lambda x: -x["value"])
     for a in allocation:
+        a["pnl_pct"] = round(a["pnl"] / a["cost"] * 100, 2) if a["cost"] else None
         a["value"] = round(a["value"], 2)
+        a["cost"] = round(a["cost"], 2)
+        a["pnl"] = round(a["pnl"], 2)
 
     return {
         "positions": positions,
@@ -133,6 +178,125 @@ def portfolio(user_id: str, wallet_id: str | None = None) -> dict:
             "pnl_pct": round(total_pnl / total_cost * 100, 2) if total_cost else None,
         },
     }
+
+
+def portfolio_timeseries(user_id: str, wallet_id: str | None = None,
+                         granularity: str = "month", range_key: str = "max",
+                         platform_id: str | None = None, asset_type: str | None = None,
+                         ticker: str | None = None) -> list[dict]:
+    """Serie del valor de cartera vs invertido acumulado (importe + comisiones).
+
+    granularity: 'day' | 'week' | 'month'. range_key: '1m'|'3m'|'6m'|'ytd'|'1y'|'max'.
+    Las posiciones se acumulan desde la primera operación; el rango solo recorta la ventana mostrada.
+    """
+    q = select(
+        WalletTransaction.op_date, WalletTransaction.ticker,
+        WalletTransaction.shares, WalletTransaction.amount, WalletTransaction.fee,
+    ).where(WalletTransaction.user_id == user_id)
+    if wallet_id:
+        q = q.where(WalletTransaction.wallet_id == wallet_id)
+    if platform_id:
+        q = q.where(WalletTransaction.platform_id == platform_id)
+    if asset_type:
+        q = q.where(WalletTransaction.ticker.in_(_tickers_of_type(asset_type)))
+    if ticker:
+        q = q.where(WalletTransaction.ticker == ticker)
+    ops = db.session.execute(q.order_by(WalletTransaction.op_date)).all()
+    if not ops:
+        return []
+
+    tickers = {o.ticker for o in ops}
+    prows = db.session.execute(
+        select(MarketPrice.ticker, MarketPrice.date, MarketPrice.close)
+        .where(MarketPrice.ticker.in_(tickers))
+        .order_by(MarketPrice.ticker, MarketPrice.date)
+    ).all()
+    # Por ticker: listas paralelas (fechas, cierres) para búsqueda binaria
+    pdates: dict[str, list] = {}
+    pcloses: dict[str, list] = {}
+    for r in prows:
+        pdates.setdefault(r.ticker, []).append(r.date)
+        pcloses.setdefault(r.ticker, []).append(float(r.close or 0))
+
+    today = date_type.today()
+    first = ops[0].op_date
+    cutoffs = {
+        "1m": today - timedelta(days=30),
+        "3m": today - timedelta(days=90),
+        "6m": today - timedelta(days=180),
+        "1y": today - timedelta(days=365),
+        "ytd": date_type(today.year, 1, 1),
+    }
+    start = max(cutoffs.get(range_key, first), first)
+
+    def month_end(y: int, m: int) -> date_type:
+        return (date_type(y, 12, 31) if m == 12
+                else date_type(y, m + 1, 1) - timedelta(days=1))
+
+    # Fechas a representar según granularidad, dentro de [start, today]
+    dates: list[date_type] = []
+    if granularity == "day":
+        d = start
+        while d <= today:
+            dates.append(d)
+            d += timedelta(days=1)
+    elif granularity == "week":
+        d = start
+        while d <= today:
+            dates.append(d)
+            d += timedelta(days=7)
+    else:  # month
+        y, m = start.year, start.month
+        while (y, m) <= (today.year, today.month):
+            me = min(month_end(y, m), today)
+            if me >= start:
+                dates.append(me)
+            y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    if not dates or dates[-1] != today:
+        dates.append(today)
+
+    def price_at(tk: str, target: date_type) -> float | None:
+        ds = pdates.get(tk)
+        if not ds:
+            return None
+        i = bisect_right(ds, target) - 1
+        return pcloses[tk][i] if i >= 0 else None
+
+    # Acumulación incremental (ops y fechas ordenadas asc). holdings[tk] = [shares, coste medio]
+    points = []
+    oi, n = 0, len(ops)
+    holdings: dict[str, list] = {}
+    for d in dates:
+        while oi < n and ops[oi].op_date <= d:
+            o = ops[oi]
+            s = float(o.shares); amt = float(o.amount); fee = float(o.fee or 0)
+            h = holdings.setdefault(o.ticker, [0.0, 0.0])
+            if s >= 0:
+                h[1] += amt + fee
+                h[0] += s
+            elif h[0] > 1e-12:
+                avg = h[1] / h[0]
+                h[1] += avg * s
+                h[0] += s
+                if h[0] < 1e-9:
+                    h[0] = h[1] = 0.0
+            else:
+                h[0] += s
+            oi += 1
+        invested = sum(h[1] for h in holdings.values())
+        value = 0.0
+        for tk, h in holdings.items():
+            if abs(h[0]) < 1e-12:
+                continue
+            px = price_at(tk, d)
+            if px:
+                value += h[0] * px
+        points.append({
+            "date": d.isoformat(),
+            "value": round(value, 2),
+            "invested": round(invested, 2),
+        })
+    return points
 
 
 def wallets_summary(user_id: str) -> list[dict]:
@@ -153,6 +317,44 @@ def wallets_summary(user_id: str) -> list[dict]:
     return out
 
 
+def platforms_summary(user_id: str, wallet_id: str | None = None,
+                      asset_type: str | None = None, ticker: str | None = None) -> list[dict]:
+    """Valor y P&L por plataforma. El universo lo fija la cartera; el valor se recalcula
+    aplicando los filtros de tipo y activo (las plataformas sin ellos salen a 0)."""
+    platforms = db.session.execute(select(Platform).order_by(Platform.name)).scalars().all()
+    universe = []
+    for p in platforms:
+        full = portfolio(user_id, wallet_id, platform_id=p.id)
+        if full["totals"]["cost"] or full["totals"]["value"]:
+            universe.append((p, full))
+    universe.sort(key=lambda x: -x[1]["totals"]["value"])  # orden estable por tamaño total
+
+    out = []
+    for p, full in universe:
+        tot = (portfolio(user_id, wallet_id, platform_id=p.id,
+                         asset_type=asset_type, ticker=ticker)["totals"]
+               if (asset_type or ticker) else full["totals"])
+        out.append({"id": p.id, "name": p.name, "value": tot["value"], "cost": tot["cost"],
+                    "pnl": tot["pnl"], "pnl_pct": tot["pnl_pct"]})
+    return out
+
+
+def types_summary(user_id: str, wallet_id: str | None = None,
+                  platform_id: str | None = None, ticker: str | None = None) -> list[dict]:
+    """Valor y P&L por tipo de activo. El universo lo fija la cartera; el valor se recalcula
+    aplicando los filtros de plataforma y activo (los tipos sin ellos salen a 0)."""
+    universe = portfolio(user_id, wallet_id)["allocation"]
+    if not platform_id and not ticker:
+        return universe
+    by_type = {a["type"]: a for a in
+               portfolio(user_id, wallet_id, platform_id=platform_id, ticker=ticker)["allocation"]}
+    out = []
+    for u in universe:
+        f = by_type.get(u["type"])
+        out.append(f if f else {**u, "value": 0, "cost": 0, "pnl": 0, "pnl_pct": None})
+    return out
+
+
 # ── Operaciones ─────────────────────────────────────────────────────────────
 
 def list_operations(user_id: str, filters: dict) -> dict:
@@ -161,6 +363,8 @@ def list_operations(user_id: str, filters: dict) -> dict:
         q = q.where(WalletTransaction.wallet_id == filters["wallet_id"])
     if filters.get("platform_id"):
         q = q.where(WalletTransaction.platform_id == filters["platform_id"])
+    if filters.get("type"):
+        q = q.where(WalletTransaction.ticker.in_(_tickers_of_type(filters["type"])))
     if filters.get("ticker"):
         q = q.where(WalletTransaction.ticker == filters["ticker"])
 
@@ -374,22 +578,18 @@ def _symbol_dict(s: Symbol) -> dict:
 
 
 def _position(user_id: str, ticker: str, price: float) -> dict | None:
-    row = db.session.execute(
-        select(
-            func.sum(WalletTransaction.shares),
-            func.sum(WalletTransaction.amount),
-            func.sum(WalletTransaction.fee),
-        ).where(WalletTransaction.user_id == user_id, WalletTransaction.ticker == ticker)
-    ).first()
-    shares = float(row[0] or 0)
+    rows = db.session.execute(
+        select(WalletTransaction.shares, WalletTransaction.amount, WalletTransaction.fee)
+        .where(WalletTransaction.user_id == user_id, WalletTransaction.ticker == ticker)
+        .order_by(WalletTransaction.op_date, WalletTransaction.id)
+    ).all()
+    shares, cost = _avg_cost([(r.shares, r.amount, r.fee) for r in rows])
     if abs(shares) < 1e-9:
         return None
-    invested = float(row[1] or 0)
-    cost = invested + float(row[2] or 0)
     value = shares * price
     return {
         "shares": round(shares, 8),
-        "invested": round(invested, 2),
+        "invested": round(cost, 2),
         "cost": round(cost, 2),
         "avg_cost": round(cost / shares, 6) if shares else 0,
         "value": round(value, 2),
