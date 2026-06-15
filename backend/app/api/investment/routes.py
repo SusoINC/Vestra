@@ -47,6 +47,7 @@ def list_operations():
     user = get_current_user()
     filters = {
         "wallet_id": request.args.get("wallet_id"),
+        "platform_id": request.args.get("platform_id"),
         "ticker": request.args.get("ticker"),
         "page": request.args.get("page", 1),
         "per_page": request.args.get("per_page", 50),
@@ -68,6 +69,18 @@ def create_operation():
             return error("MISSING_FIELDS", f"{f} es obligatorio")
     op = svc.create_operation(user.id, body)
     return created(svc.op_to_dict(op))
+
+
+@bp.post("/operations/bulk")
+@jwt_required()
+def create_operations_bulk():
+    user = get_current_user()
+    body = request.get_json(silent=True) or {}
+    items = body.get("operations") or []
+    if not items:
+        return error("MISSING_FIELDS", "No hay operaciones que guardar")
+    result = svc.create_operations_bulk(user.id, items)
+    return created(result)
 
 
 @bp.put("/operations/<op_id>")

@@ -44,11 +44,14 @@ def get_catalogues(user_id: str) -> dict:
     symbols = db.session.execute(
         select(Symbol).where(Symbol.enabled == True).order_by(Symbol.description)
     ).scalars().all()
+    prices = _latest_prices()
     return {
         "wallets": [{"id": w.id, "name": w.name, "description": w.description} for w in wallets],
         "platforms": [{"id": p.id, "name": p.name} for p in platforms],
         "symbols": [{"ticker": s.ticker, "type": s.type, "isin": s.isin,
-                     "description": s.description, "market": s.market} for s in symbols],
+                     "description": s.description, "market": s.market,
+                     "type_label": TYPE_LABELS.get(s.type, s.type)} for s in symbols],
+        "prices": {t: round(c, 6) for t, (c, _d) in prices.items()},
     }
 
 
@@ -156,6 +159,8 @@ def list_operations(user_id: str, filters: dict) -> dict:
     q = select(WalletTransaction).where(WalletTransaction.user_id == user_id)
     if filters.get("wallet_id"):
         q = q.where(WalletTransaction.wallet_id == filters["wallet_id"])
+    if filters.get("platform_id"):
+        q = q.where(WalletTransaction.platform_id == filters["platform_id"])
     if filters.get("ticker"):
         q = q.where(WalletTransaction.ticker == filters["ticker"])
 
@@ -196,6 +201,38 @@ def create_operation(user_id: str, data: dict) -> WalletTransaction:
     return op
 
 
+def create_operations_bulk(user_id: str, items: list[dict]) -> dict:
+    """Alta masiva de operaciones. Inserta las válidas y reporta errores por fila."""
+    created_n = 0
+    errors = []
+    for i, data in enumerate(items):
+        missing = [f for f in ("wallet_id", "platform_id", "ticker", "op_date") if not data.get(f)]
+        if missing:
+            errors.append({"row": i, "msg": f"Faltan campos: {', '.join(missing)}"})
+            continue
+        try:
+            op_date = data["op_date"]
+            if isinstance(op_date, str):
+                op_date = date_type.fromisoformat(op_date)
+            op = WalletTransaction(
+                id=str(uuid.uuid4()), user_id=user_id,
+                wallet_id=data["wallet_id"], platform_id=data["platform_id"],
+                ticker=data["ticker"], op_date=op_date,
+                amount=Decimal(str(data.get("amount", 0))),
+                fee=Decimal(str(data.get("fee", 0))),
+                shares=Decimal(str(data.get("shares", 0))),
+            )
+            db.session.add(op)
+            created_n += 1
+        except Exception as e:  # noqa: BLE001 — reportamos el error de la fila al usuario
+            errors.append({"row": i, "msg": str(e)})
+    if created_n:
+        db.session.commit()
+    else:
+        db.session.rollback()
+    return {"created": created_n, "errors": errors}
+
+
 def get_operation(user_id: str, op_id: str) -> WalletTransaction | None:
     return db.session.execute(
         select(WalletTransaction).where(
@@ -206,7 +243,10 @@ def get_operation(user_id: str, op_id: str) -> WalletTransaction | None:
 def update_operation(op: WalletTransaction, data: dict) -> WalletTransaction:
     for field in ("wallet_id", "platform_id", "ticker", "op_date"):
         if field in data and data[field]:
-            setattr(op, field, data[field])
+            value = data[field]
+            if field == "op_date" and isinstance(value, str):
+                value = date_type.fromisoformat(value)
+            setattr(op, field, value)
     for field in ("amount", "fee", "shares"):
         if field in data and data[field] is not None:
             setattr(op, field, Decimal(str(data[field])))

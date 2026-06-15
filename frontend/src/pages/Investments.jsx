@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 import investmentApi from "../api/investment";
 import { fmtEUR } from "../utils/format";
@@ -56,11 +57,17 @@ export default function Investments() {
           <h1 className="text-2xl font-semibold">Inversiones</h1>
           <p className="text-navy-400 text-sm mt-0.5">Cartera y rendimiento</p>
         </div>
-        <select value={walletId} onChange={(e) => setWalletId(e.target.value)}
-          className="bg-navy-900 border border-navy-600 text-white rounded-lg px-3 py-2 text-sm">
-          <option value="">Todas las carteras</option>
-          {wallets.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-        </select>
+        <div className="flex items-center gap-2">
+          <select value={walletId} onChange={(e) => setWalletId(e.target.value)}
+            className="bg-navy-900 border border-navy-600 text-white rounded-lg px-3 py-2 text-sm">
+            <option value="">Todas las carteras</option>
+            {wallets.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+          <Link to="/investments/new"
+            className="bg-champagne text-navy-950 font-semibold rounded-lg px-4 py-2 text-sm hover:bg-gold-400 transition whitespace-nowrap">
+            ➕ Registrar
+          </Link>
+        </div>
       </div>
 
       {loading || !data ? (

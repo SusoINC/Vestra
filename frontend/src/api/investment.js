@@ -8,6 +8,8 @@ const investmentApi = {
   getWalletsSummary: () => axiosClient.get("/investments/wallets/summary"),
   getOperations: (params = {}) => axiosClient.get("/investments/operations", { params }),
   createOperation: (data) => axiosClient.post("/investments/operations", data),
+  createOperationsBulk: (operations) =>
+    axiosClient.post("/investments/operations/bulk", { operations }),
   updateOperation: (id, data) => axiosClient.put(`/investments/operations/${id}`, data),
   deleteOperation: (id) => axiosClient.delete(`/investments/operations/${id}`),
 };

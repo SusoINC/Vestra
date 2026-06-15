@@ -10,6 +10,7 @@ import Transactions from "./pages/Transactions";
 import EditTransactions from "./pages/EditTransactions";
 import Budgets from "./pages/Budgets";
 import Investments from "./pages/Investments";
+import InvestmentEntry from "./pages/InvestmentEntry";
 import SymbolAnalysis from "./pages/SymbolAnalysis";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AppLayout from "./layouts/AppLayout";
@@ -46,6 +47,7 @@ export default function App() {
               <Route path="/edit-transactions" element={<EditTransactions />} />
               <Route path="/budgets"           element={<Budgets />} />
               <Route path="/investments"       element={<Investments />} />
+              <Route path="/investments/new"   element={<InvestmentEntry />} />
               <Route path="/symbol-analysis"   element={<SymbolAnalysis />} />
             </Route>
           </Route>

@@ -71,8 +71,12 @@ export default function Sidebar() {
         <p className="text-navy-500 text-xs font-semibold uppercase tracking-widest px-3 pb-1 pt-4">
           Inversiones
         </p>
-        <NavLink to="/investments" className={({ isActive }) => `${navItem} ${isActive ? active : inactive}`}>
+        <NavLink to="/investments" end className={({ isActive }) => `${navItem} ${isActive ? active : inactive}`}>
           <span>💼</span> Cartera
+        </NavLink>
+
+        <NavLink to="/investments/new" className={({ isActive }) => `${navItem} ${isActive ? active : inactive}`}>
+          <span>➕</span> Registrar
         </NavLink>
 
         <NavLink to="/symbol-analysis" className={({ isActive }) => `${navItem} ${isActive ? active : inactive}`}>
