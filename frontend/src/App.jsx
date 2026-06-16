@@ -12,6 +12,8 @@ import Budgets from "./pages/Budgets";
 import Investments from "./pages/Investments";
 import InvestmentEntry from "./pages/InvestmentEntry";
 import SymbolAnalysis from "./pages/SymbolAnalysis";
+import Vehicles from "./pages/Vehicles";
+import VehicleDetail from "./pages/VehicleDetail";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AppLayout from "./layouts/AppLayout";
 import useAuthStore from "./store/authStore";
@@ -49,6 +51,8 @@ export default function App() {
               <Route path="/investments"       element={<Investments />} />
               <Route path="/investments/new"   element={<InvestmentEntry />} />
               <Route path="/symbol-analysis"   element={<SymbolAnalysis />} />
+              <Route path="/vehicles"          element={<Vehicles />} />
+              <Route path="/vehicles/:id"      element={<VehicleDetail />} />
             </Route>
           </Route>
 

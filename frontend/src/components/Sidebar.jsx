@@ -83,11 +83,19 @@ export default function Sidebar() {
           <span>🔎</span> Análisis símbolos
         </NavLink>
 
+        {/* Vehículos */}
+        <p className="text-navy-500 text-xs font-semibold uppercase tracking-widest px-3 pb-1 pt-4">
+          Vehículos
+        </p>
+        <NavLink to="/vehicles" className={({ isActive }) => `${navItem} ${isActive ? active : inactive}`}>
+          <span>🚗</span> Garaje
+        </NavLink>
+
         {/* Coming soon */}
         <p className="text-navy-500 text-xs font-semibold uppercase tracking-widest px-3 pb-1 pt-4">
           Próximamente
         </p>
-        {["🚗 Vehículos", "🔧 Proyectos"].map((label) => (
+        {["🔧 Proyectos"].map((label) => (
           <div key={label} className={`${navItem} text-navy-600 cursor-not-allowed`}>
             <span>{label}</span>
           </div>
