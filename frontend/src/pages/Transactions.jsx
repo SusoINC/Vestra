@@ -1,17 +1,25 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import financeApi from "../api/finance";
 import { fmtEUR as fmt } from "../utils/format";
 import MultiCategorySelect from "../components/MultiCategorySelect";
 
 export default function Transactions() {
+  const [searchParams] = useSearchParams();
   const [data, setData] = useState({ items: [], total: 0, page: 1, pages: 1 });
   const [catalogues, setCatalogues] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({
-    q: "", account_id: "", type_id: "", category_id: "",
-    date_from: "", date_to: "", page: 1, per_page: 50,
-  });
+  // Filtros iniciales: por defecto vacíos, pero respetan los de la URL (deep-link desde Presupuestos)
+  const [filters, setFilters] = useState(() => ({
+    q: searchParams.get("q") || "",
+    account_id: searchParams.get("account_id") || "",
+    type_id: searchParams.get("type_id") || "",
+    category_id: searchParams.get("category_id") || "",
+    date_from: searchParams.get("date_from") || "",
+    date_to: searchParams.get("date_to") || "",
+    page: 1, per_page: 50,
+  }));
   const debounceRef = useRef();
 
   const load = useCallback(async () => {

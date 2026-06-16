@@ -1,10 +1,14 @@
 import { useEffect, useState, useCallback, Fragment } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   ResponsiveContainer, ComposedChart, Bar, Line, LineChart,
   XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from "recharts";
 import financeApi from "../api/finance";
 import { fmtEUR as fmt } from "../utils/format";
+
+const pad2 = (n) => String(n).padStart(2, "0");
+const lastDay = (year, month) => new Date(year, month, 0).getDate();
 
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
                 "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -338,7 +342,7 @@ function BudgetModal({ year, catalogues, editing, onClose, onSaved }) {
                           return (
                             <button key={mi} type="button" onClick={() => toggleMonth(mi)}
                               className={`text-xs py-1.5 rounded transition ${on
-                                ? "bg-champagne text-navy-950 font-semibold"
+                                ? "bg-champagne text-[#0a1020] font-semibold"
                                 : "bg-navy-700 text-navy-300 hover:bg-navy-600"}`}>
                               {m}
                             </button>
@@ -423,7 +427,7 @@ function BudgetModal({ year, catalogues, editing, onClose, onSaved }) {
             Cancelar
           </button>
           <button onClick={onSave} disabled={saving}
-            className="flex-1 bg-champagne hover:bg-champagne-light text-navy-950 font-semibold rounded-lg py-2 text-sm transition disabled:opacity-50">
+            className="flex-1 bg-champagne hover:bg-champagne-light text-[#0a1020] font-semibold rounded-lg py-2 text-sm transition disabled:opacity-50">
             {saving ? "Guardando…" : "Guardar"}
           </button>
         </div>
@@ -434,7 +438,10 @@ function BudgetModal({ year, catalogues, editing, onClose, onSaved }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function Budgets() {
+  const navigate = useNavigate();
   const now = new Date();
+  const curYear = now.getFullYear();
+  const curMonth = now.getMonth() + 1;
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1); // null = año completo
   const [view, setView] = useState("summary"); // "summary" | "comparison" | "lines"
@@ -445,6 +452,19 @@ export default function Budgets() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null); // "new" | budget object (edit)
   const [expanded, setExpanded] = useState({});
+
+  // Navega a Transacciones con filtros (tipo, categoría y rango de fechas)
+  const goToTx = ({ type_id, category_id, date_from, date_to }) => {
+    const p = new URLSearchParams();
+    if (type_id) p.set("type_id", type_id);
+    if (category_id) p.set("category_id", category_id);
+    if (date_from) p.set("date_from", date_from);
+    if (date_to) p.set("date_to", date_to);
+    navigate(`/transactions?${p.toString()}`);
+  };
+  // Mes → rango de fechas completo; YTD → del 1 enero al 31 diciembre del año
+  const monthRange = (m) => ({ date_from: `${year}-${pad2(m)}-01`, date_to: `${year}-${pad2(m)}-${pad2(lastDay(year, m))}` });
+  const ytdRange = () => ({ date_from: `${year}-01-01`, date_to: `${year}-12-31` });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -497,7 +517,7 @@ export default function Budgets() {
             {[2024, 2025, 2026, 2027].map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
           <button onClick={() => setModal("new")}
-            className="bg-champagne hover:bg-champagne-light text-navy-950 font-semibold rounded-lg px-4 py-2 text-sm transition whitespace-nowrap">
+            className="bg-champagne hover:bg-champagne-light text-[#0a1020] font-semibold rounded-lg px-4 py-2 text-sm transition whitespace-nowrap">
             + Presupuesto
           </button>
         </div>
@@ -613,9 +633,16 @@ export default function Budgets() {
                       <th className="text-left px-2 py-1 text-navy-400 font-medium sticky left-0 bg-navy-800 z-10">
                         Categoría
                       </th>
-                      {MONTHS.map((m) => (
-                        <th key={m} className="px-1 py-1 text-navy-500 font-medium w-12 text-center">{m}</th>
-                      ))}
+                      {MONTHS.map((m, i) => {
+                        const isCur = year === curYear && i + 1 === curMonth;
+                        return (
+                          <th key={m}
+                            className={`px-1 py-1 w-12 text-center ${isCur
+                              ? "text-champagne font-bold text-sm" : "text-navy-500 font-medium"}`}>
+                            {m}
+                          </th>
+                        );
+                      })}
                       <th className="px-2 py-1 text-navy-400 font-medium text-center">YTD</th>
                     </tr>
                   </thead>
@@ -639,18 +666,33 @@ export default function Budgets() {
                               <span className="text-white">{row.category_icon} {row.category_label}</span>
                               <span className="text-navy-500 ml-1.5">· {row.class_label}</span>
                             </td>
-                            {row.cells.map((cell) => (
-                              <td key={cell.month} className="text-center rounded"
-                                style={{ ...cellStyle(cell, inc), width: 44, height: 26 }}
-                                title={cell.budget || cell.actual
-                                  ? `${MONTHS[cell.month - 1]}: real ${fmt(cell.actual)} / ppto ${fmt(cell.budget)}`
-                                  : ""}>
-                                {cell.pct != null ? `${Math.round(cell.pct)}%` : (cell.actual > 0 ? "·" : "")}
-                              </td>
-                            ))}
-                            <td className="text-center rounded font-semibold"
+                            {row.cells.map((cell) => {
+                              const isCur = year === curYear && cell.month === curMonth;
+                              const clickable = cell.budget || cell.actual;
+                              return (
+                                <td key={cell.month}
+                                  onClick={clickable ? () => goToTx({
+                                    type_id: row.type_id, category_id: row.category_id, ...monthRange(cell.month),
+                                  }) : undefined}
+                                  className={`text-center rounded ${clickable ? "cursor-pointer hover:brightness-125" : ""} ${isCur ? "font-bold text-[13px]" : ""}`}
+                                  style={{
+                                    ...cellStyle(cell, inc), width: 44, height: 26,
+                                    ...(isCur ? { boxShadow: "inset 0 0 0 1.5px #d4af6e" } : {}),
+                                  }}
+                                  title={cell.budget || cell.actual
+                                    ? `${MONTHS[cell.month - 1]}: real ${fmt(cell.actual)} / ppto ${fmt(cell.budget)} — clic para ver movimientos`
+                                    : ""}>
+                                  {cell.pct != null ? `${Math.round(cell.pct)}%` : (cell.actual > 0 ? "·" : "")}
+                                </td>
+                              );
+                            })}
+                            <td
+                              onClick={(row.ytd_budget || row.ytd_actual) ? () => goToTx({
+                                type_id: row.type_id, category_id: row.category_id, ...ytdRange(),
+                              }) : undefined}
+                              className={`text-center rounded font-semibold ${(row.ytd_budget || row.ytd_actual) ? "cursor-pointer hover:brightness-125" : ""}`}
                               style={{ ...cellStyle(ytdCell, inc), width: 52, height: 26 }}
-                              title={`YTD: real ${fmt(row.ytd_actual)} / ppto ${fmt(row.ytd_budget)}`}>
+                              title={`YTD: real ${fmt(row.ytd_actual)} / ppto ${fmt(row.ytd_budget)} — clic para ver movimientos`}>
                               {row.ytd_pct != null ? `${Math.round(row.ytd_pct)}%` : "·"}
                             </td>
                           </tr>
