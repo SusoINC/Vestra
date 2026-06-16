@@ -1,22 +1,26 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{js,jsx,ts,tsx}"],
+  darkMode: "class",
   theme: {
     extend: {
       colors: {
-        // Paleta Vestra — extraída del logo
+        // Texto principal themeable: blanco en oscuro, navy oscuro en claro.
+        white: "rgb(var(--c-white) / <alpha-value>)",
+        // Paleta Vestra — valores reales en CSS variables (styles/index.css) para
+        // soportar tema claro/oscuro. Canales RGB → compatibles con opacidad (/NN).
         navy: {
-          50:  "#eef1f7",
-          100: "#d5dcea",
-          200: "#adb9d5",
-          300: "#7f94bc",
-          400: "#5672a3",
-          500: "#3a5490",
-          600: "#2d4275",
-          700: "#21305a",
-          800: "#1b2a4a",  // navy principal (logo)
-          900: "#111a30",
-          950: "#0a1020",
+          50:  "rgb(var(--navy-50) / <alpha-value>)",
+          100: "rgb(var(--navy-100) / <alpha-value>)",
+          200: "rgb(var(--navy-200) / <alpha-value>)",
+          300: "rgb(var(--navy-300) / <alpha-value>)",
+          400: "rgb(var(--navy-400) / <alpha-value>)",
+          500: "rgb(var(--navy-500) / <alpha-value>)",
+          600: "rgb(var(--navy-600) / <alpha-value>)",
+          700: "rgb(var(--navy-700) / <alpha-value>)",
+          800: "rgb(var(--navy-800) / <alpha-value>)",
+          900: "rgb(var(--navy-900) / <alpha-value>)",
+          950: "rgb(var(--navy-950) / <alpha-value>)",
         },
         gold: {
           50:  "#fdf8ee",

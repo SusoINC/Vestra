@@ -310,7 +310,7 @@ export default function InvestmentEntry() {
             <span className="text-navy-400">Comisiones: <span className="text-white font-medium">{fmtEUR(totals.fee)}</span></span>
           </div>
           <button onClick={save} disabled={saving || !validRows.length || noWallets}
-            className="bg-champagne text-navy-950 font-semibold rounded-lg px-5 py-2 text-sm hover:bg-gold-400 transition disabled:opacity-40 disabled:cursor-not-allowed">
+            className="bg-champagne text-[#0a1020] font-semibold rounded-lg px-5 py-2 text-sm hover:bg-gold-400 transition disabled:opacity-40 disabled:cursor-not-allowed">
             {saving ? "Guardando…" : `Guardar ${validRows.length || ""}`.trim()}
           </button>
         </div>

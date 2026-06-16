@@ -184,7 +184,7 @@ export default function Investments() {
             {wallets.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
           <Link to="/investments/new"
-            className="bg-champagne text-navy-950 font-semibold rounded-lg px-4 py-2 text-sm hover:bg-gold-400 transition whitespace-nowrap">
+            className="bg-champagne text-[#0a1020] font-semibold rounded-lg px-4 py-2 text-sm hover:bg-gold-400 transition whitespace-nowrap">
             ➕ Registrar
           </Link>
         </div>

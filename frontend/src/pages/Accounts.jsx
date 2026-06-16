@@ -68,7 +68,7 @@ function AccountModal({ account, onClose, onSaved }) {
               Cancelar
             </button>
             <button type="submit" disabled={isSubmitting}
-              className="flex-1 bg-champagne hover:bg-champagne-light text-navy-950 font-semibold rounded-lg py-2 text-sm transition disabled:opacity-60">
+              className="flex-1 bg-champagne hover:bg-champagne-light text-[#0a1020] font-semibold rounded-lg py-2 text-sm transition disabled:opacity-60">
               {isSubmitting ? "Guardando…" : "Guardar"}
             </button>
           </div>
@@ -116,7 +116,7 @@ export default function Accounts() {
           </p>
         </div>
         <button onClick={() => setModal("new")}
-          className="bg-champagne hover:bg-champagne-light text-navy-950 font-semibold rounded-lg px-4 py-2 text-sm transition">
+          className="bg-champagne hover:bg-champagne-light text-[#0a1020] font-semibold rounded-lg px-4 py-2 text-sm transition">
           + Nueva cuenta
         </button>
       </div>

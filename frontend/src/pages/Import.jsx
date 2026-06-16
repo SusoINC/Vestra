@@ -98,7 +98,7 @@ export default function Import() {
 
           <Link to="/pending"
             className="block w-full text-center bg-champagne hover:bg-champagne-light
-                       text-navy-950 font-semibold rounded-lg py-2.5 text-sm transition">
+                       text-[#0a1020] font-semibold rounded-lg py-2.5 text-sm transition">
             Ver movimientos por categorizar →
           </Link>
         </div>

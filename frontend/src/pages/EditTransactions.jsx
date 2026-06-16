@@ -167,7 +167,7 @@ function EditModal({ tx, catalogues, onClose, onSaved }) {
             Cancelar
           </button>
           <button onClick={onSave} disabled={saving}
-            className="flex-1 bg-champagne hover:bg-champagne-light text-navy-950 font-semibold rounded-lg py-2 text-sm transition disabled:opacity-50">
+            className="flex-1 bg-champagne hover:bg-champagne-light text-[#0a1020] font-semibold rounded-lg py-2 text-sm transition disabled:opacity-50">
             {saving ? "Guardando…" : "Guardar cambios"}
           </button>
         </div>

@@ -102,7 +102,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full bg-champagne hover:bg-champagne-light text-navy-950 font-semibold
+              className="w-full bg-champagne hover:bg-champagne-light text-[#0a1020] font-semibold
                          rounded-lg py-2.5 transition disabled:opacity-60 disabled:cursor-not-allowed text-sm"
             >
               {isSubmitting ? "Entrando…" : "Iniciar sesión"}

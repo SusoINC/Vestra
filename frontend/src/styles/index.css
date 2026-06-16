@@ -1,3 +1,41 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ── Tema ────────────────────────────────────────────────────────────────────
+   Canales RGB (espaciados) para que las opacidades de Tailwind (bg-navy-700/20)
+   sigan funcionando. Por defecto = tema OSCURO (idéntico al diseño original).
+   La clase .light en <html> conmuta a tema CLARO. */
+:root {
+  --c-white: 255 255 255;        /* texto principal */
+  --navy-50:  238 241 247;
+  --navy-100: 213 220 234;
+  --navy-200: 173 185 213;
+  --navy-300: 127 148 188;
+  --navy-400: 86 114 163;
+  --navy-500: 58 84 144;
+  --navy-600: 45 66 117;
+  --navy-700: 33 48 90;
+  --navy-800: 27 42 74;          /* navy principal (logo) */
+  --navy-900: 17 26 48;
+  --navy-950: 10 16 32;
+  color-scheme: dark;
+}
+
+html.light {
+  --c-white: 15 24 48;           /* texto principal → navy oscuro */
+  /* Tonos claros (texto secundario): cuanto más bajo el número, más prominente */
+  --navy-50:  15 23 48;
+  --navy-100: 26 34 56;
+  --navy-200: 35 44 68;
+  --navy-300: 58 66 88;
+  --navy-400: 88 99 119;         /* texto secundario principal */
+  --navy-500: 110 120 144;       /* etiquetas atenuadas */
+  /* Tonos oscuros → superficies y bordes claros */
+  --navy-600: 204 212 227;       /* bordes fuertes / activo */
+  --navy-700: 221 227 238;       /* bordes / divisores */
+  --navy-800: 255 255 255;       /* tarjetas (blancas, destacan) */
+  --navy-900: 229 234 243;       /* sidebar / topbar */
+  --navy-950: 238 241 248;       /* fondo de página */
+  color-scheme: light;
+}
