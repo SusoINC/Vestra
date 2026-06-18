@@ -15,9 +15,12 @@ export default function Transactions() {
     q: searchParams.get("q") || "",
     account_id: searchParams.get("account_id") || "",
     type_id: searchParams.get("type_id") || "",
+    class_id: searchParams.get("class_id") || "",
     category_id: searchParams.get("category_id") || "",
     date_from: searchParams.get("date_from") || "",
     date_to: searchParams.get("date_to") || "",
+    amount_min: searchParams.get("amount_min") || "",
+    amount_max: searchParams.get("amount_max") || "",
     page: 1, per_page: 50,
   }));
   const debounceRef = useRef();
@@ -101,9 +104,15 @@ export default function Transactions() {
         <input type="date" value={filters.date_to}
           onChange={(e) => setFilter("date_to", e.target.value)}
           className={selectCls} />
+        <input type="number" step="0.01" min="0" value={filters.amount_min}
+          onChange={(e) => setFilter("amount_min", e.target.value)}
+          placeholder="Importe ≥ €" className={selectCls + " w-32"} />
+        <input type="number" step="0.01" min="0" value={filters.amount_max}
+          onChange={(e) => setFilter("amount_max", e.target.value)}
+          placeholder="Importe ≤ €" className={selectCls + " w-32"} />
 
         {Object.values(filters).some((v) => v !== "" && v !== 1 && v !== 50) && (
-          <button onClick={() => { setSearchInput(""); setFilters({ q: "", account_id: "", type_id: "", category_id: "", date_from: "", date_to: "", page: 1, per_page: 50 }); }}
+          <button onClick={() => { setSearchInput(""); setFilters({ q: "", account_id: "", type_id: "", class_id: "", category_id: "", date_from: "", date_to: "", amount_min: "", amount_max: "", page: 1, per_page: 50 }); }}
             className="text-sm text-navy-400 hover:text-white transition border border-navy-700 rounded-lg px-3 py-2">
             ✕ Limpiar
           </button>

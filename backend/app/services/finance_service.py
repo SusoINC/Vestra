@@ -200,6 +200,12 @@ def list_transactions(user_id: str, filters: dict) -> dict:
         q = q.where(Transaction.account_id == filters["account_id"])
     if filters.get("type_id"):
         q = q.where(Transaction.type_id == filters["type_id"])
+    if filters.get("class_id"):
+        q = q.where(Transaction.class_id == filters["class_id"])
+    if filters.get("amount_min"):
+        q = q.where(func.abs(Transaction.amount) >= float(filters["amount_min"]))
+    if filters.get("amount_max"):
+        q = q.where(func.abs(Transaction.amount) <= float(filters["amount_max"]))
     cat_clause = _category_clause(filters.get("category_id"))
     if cat_clause is not None:
         q = q.where(cat_clause)
@@ -287,6 +293,12 @@ def list_all_transactions(user_id: str, filters: dict) -> dict:
         q = q.where(Transaction.account_id == filters["account_id"])
     if filters.get("type_id"):
         q = q.where(Transaction.type_id == filters["type_id"])
+    if filters.get("class_id"):
+        q = q.where(Transaction.class_id == filters["class_id"])
+    if filters.get("amount_min"):
+        q = q.where(func.abs(Transaction.amount) >= float(filters["amount_min"]))
+    if filters.get("amount_max"):
+        q = q.where(func.abs(Transaction.amount) <= float(filters["amount_max"]))
     cat_clause = _category_clause(filters.get("category_id"))
     if cat_clause is not None:
         q = q.where(cat_clause)
