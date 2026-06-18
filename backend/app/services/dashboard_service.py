@@ -67,8 +67,9 @@ def _daily_expense(user_id: str, year: int) -> list[dict]:
     return out
 
 
-def _top_categories(user_id: str, year: int, limit: int = 6) -> list[dict]:
-    """Top categorías de gasto (T02) del año."""
+def _top_categories(user_id: str, year: int, class_id: str | None = None,
+                    limit: int = 6) -> list[dict]:
+    """Top categorías de gasto (T02) del año, opcionalmente filtradas por clase (Fijo/Variable)."""
     q = select(
         Transaction.category_id,
         func.sum(Transaction.amount).label("total"),
@@ -78,7 +79,10 @@ def _top_categories(user_id: str, year: int, limit: int = 6) -> list[dict]:
         Transaction.type_id == "T02",
         Transaction.category_id != None,
         extract("year", Transaction.op_date) == year,
-    ).group_by(Transaction.category_id)
+    )
+    if class_id:
+        q = q.where(Transaction.class_id == class_id)
+    q = q.group_by(Transaction.category_id)
 
     cats = {c.id: c for c in db.session.execute(select(TxCategory)).scalars().all()}
     # Gasto = -suma; solo categorías con gasto neto positivo para el donut
@@ -158,6 +162,8 @@ def dashboard(user_id: str, year: int) -> dict:
         "kpis": _ytd_kpis(user_id, year),
         "monthly": _month_flows(user_id, year),
         "top_categories": _top_categories(user_id, year),
+        "top_categories_fixed": _top_categories(user_id, year, "C01"),
+        "top_categories_variable": _top_categories(user_id, year, "C02"),
         "heatmap": {
             "current": _daily_expense(user_id, year),
             "previous": _daily_expense(user_id, year - 1),

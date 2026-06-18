@@ -49,6 +49,7 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [invest, setInvest] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [donutMode, setDonutMode] = useState("all"); // all | fixed | variable
 
   useEffect(() => {
     setLoading(true);
@@ -72,7 +73,8 @@ export default function Dashboard() {
     return Math.max(1, ...all);
   }, [data]);
 
-  const pieData = (data?.top_categories || []).map((c) => ({
+  const DONUT_KEY = { all: "top_categories", fixed: "top_categories_fixed", variable: "top_categories_variable" };
+  const pieData = (data?.[DONUT_KEY[donutMode]] || []).map((c) => ({
     name: c.label, value: c.amount, fill: c.color,
   }));
 
@@ -124,7 +126,10 @@ export default function Dashboard() {
             </div>
 
             <div className="lg:col-span-2 bg-navy-800 border border-navy-700 rounded-xl p-5">
-              <p className="text-navy-300 text-sm font-medium mb-3">Ingresos · Gastos · Inversión por mes</p>
+              <p className="text-navy-300 text-sm font-medium mb-1">Entradas vs salidas por mes</p>
+              <p className="text-navy-500 text-xs mb-3">
+                Ingresos frente a gastos + inversión + ahorro apilados · idealmente a la misma altura
+              </p>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={data.monthly} barGap={2}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#21305a" vertical={false} />
@@ -134,10 +139,10 @@ export default function Dashboard() {
                     tickFormatter={(v) => v >= 1000 ? `${v / 1000}k` : v} />
                   <Tooltip content={<DarkTooltip />} cursor={{ fill: "#ffffff08" }} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="income" name="Ingresos" fill="#22c55e" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="expense" name="Gastos" fill="#ef4444" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="investment" name="Inversión" fill="#c9922a" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="savings" name="Ahorro" fill="#2dd4bf" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="income" name="Ingresos" stackId="in" fill="#22c55e" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="expense" name="Gastos" stackId="out" fill="#ef4444" />
+                  <Bar dataKey="investment" name="Inversión" stackId="out" fill="#c9922a" />
+                  <Bar dataKey="savings" name="Ahorro" stackId="out" fill="#2dd4bf" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -168,7 +173,18 @@ export default function Dashboard() {
             </div>
 
             <div className="bg-navy-800 border border-navy-700 rounded-xl p-5">
-              <p className="text-navy-300 text-sm font-medium mb-3">Gasto por categoría</p>
+              <div className="flex items-center justify-between mb-3 gap-2">
+                <p className="text-navy-300 text-sm font-medium">Gasto por categoría</p>
+                <div className="flex gap-0.5 bg-navy-900 rounded-lg p-0.5 border border-navy-700">
+                  {[["all", "Todo"], ["fixed", "Fijo"], ["variable", "Variable"]].map(([v, lbl]) => (
+                    <button key={v} onClick={() => setDonutMode(v)}
+                      className={`px-2 py-1 rounded text-xs transition ${donutMode === v
+                        ? "bg-navy-600 text-white font-medium" : "text-navy-400 hover:text-white"}`}>
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
+              </div>
               {pieData.length === 0 ? (
                 <p className="text-navy-500 text-sm py-12 text-center">Sin datos</p>
               ) : (

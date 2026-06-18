@@ -454,19 +454,17 @@ def _annual_matrix(user_id: str, year: int) -> list[dict]:
         Budget.user_id == user_id, Budget.year == year, Budget.month != None,
     ).group_by(Budget.type_id, Budget.class_id, Budget.category_id, Budget.month)
 
-    rows: dict = {}  # (class, cat) -> {type, budget[m], actual[m]}
+    rows: dict = {}  # (type, class, cat) -> {budget[m], actual[m]}
 
-    def _row(cl, cat, tid):
-        key = (cl, cat)
+    def _row(tid, cl, cat):
+        key = (tid, cl, cat)
         if key not in rows:
             rows[key] = {"type_id": tid, "class_id": cl, "category_id": cat,
                          "budget": {}, "actual": {}}
-        if tid and not rows[key]["type_id"]:
-            rows[key]["type_id"] = tid
         return rows[key]
 
     for tid, cl, cat, m, amt in db.session.execute(bq):
-        _row(cl, cat, tid)["budget"][int(m)] = float(amt or 0)
+        _row(tid, cl, cat)["budget"][int(m)] = float(amt or 0)
 
     # Real por (class, cat, month)
     aq = select(
@@ -481,11 +479,11 @@ def _annual_matrix(user_id: str, year: int) -> list[dict]:
     ).group_by(Transaction.type_id, Transaction.class_id, Transaction.category_id, "m")
 
     for tid, cl, cat, m, amt in db.session.execute(aq):
-        # Mismo (class,cat) puede tener varias filas por tipo → acumular con signo
-        rd = _row(cl, cat, tid)["actual"]
+        rd = _row(tid, cl, cat)["actual"]
         rd[int(m)] = rd.get(int(m), 0.0) + report_value(tid, float(amt or 0))
 
-    TYPE_ORDER = {"T01": 0, "T02": 1, "T04": 2, "T05": 3}
+    # Orden de la matriz: Ingreso → Inversión → Ahorro → Gasto → Deuda
+    TYPE_ORDER = {"T01": 0, "T04": 1, "T06": 2, "T02": 3, "T05": 4}
     CLASS_ORDER = {"C01": 0, "C02": 1, "C03": 2, "C04": 3}
 
     # Mes de corte para el YTD: mes actual si es el año en curso, si no diciembre
@@ -494,7 +492,7 @@ def _annual_matrix(user_id: str, year: int) -> list[dict]:
     ytd_month = today.month if today.year == year else 12
 
     out = []
-    for (cl, cat), r in rows.items():
+    for (_tid, cl, cat), r in rows.items():
         cells = []
         tot_b = tot_a = 0.0
         ytd_b = ytd_a = 0.0

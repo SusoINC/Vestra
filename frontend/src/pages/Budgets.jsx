@@ -85,6 +85,133 @@ function cellStyle(cell, isIncome) {
   return R;
 }
 
+// Agrega varias filas de la matriz en una (suma presupuesto/real por mes + YTD)
+function aggCells(rows) {
+  const cells = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, budget: 0, actual: 0, pct: null }));
+  let yb = 0, ya = 0;
+  rows.forEach((r) => {
+    r.cells.forEach((c, i) => { cells[i].budget += c.budget; cells[i].actual += c.actual; });
+    yb += r.ytd_budget; ya += r.ytd_actual;
+  });
+  cells.forEach((c) => {
+    c.budget = Math.round(c.budget * 100) / 100;
+    c.actual = Math.round(c.actual * 100) / 100;
+    c.pct = c.budget > 0 ? Math.round((c.actual / c.budget) * 1000) / 10 : null;
+  });
+  return {
+    cells,
+    ytd_budget: Math.round(yb * 100) / 100,
+    ytd_actual: Math.round(ya * 100) / 100,
+    ytd_pct: yb > 0 ? Math.round((ya / yb) * 1000) / 10 : null,
+  };
+}
+
+const CLASS_LABEL = { C01: "Fijo", C02: "Variable" };
+
+// Matriz "Estado del presupuesto": global, secciones por tipo, subtotales Fijo/Variable
+function BudgetMatrix({ matrix, year, curYear, curMonth, goToTx, monthRange, ytdRange }) {
+  const intFmt = (n) => Math.round(n).toLocaleString("es-ES");
+  const row = (key, labelNode, cells, ytd, inc, filt, opts = {}) => {
+    const { rowCls = "", strong = false, labelBg = "bg-navy-800" } = opts;
+    const ytdClickable = ytd.ytd_budget || ytd.ytd_actual;
+    const ytdAmount = ytd.ytd_pct == null && ytd.ytd_actual > 0;
+    return (
+      <tr key={key} className={rowCls}>
+        <td className={`px-2 py-1 sticky left-0 z-10 whitespace-nowrap ${labelBg}`}>{labelNode}</td>
+        {cells.map((cell) => {
+          const isCur = year === curYear && cell.month === curMonth;
+          const clickable = cell.budget || cell.actual;
+          // Sin presupuesto pero con gasto real → mostramos el importe (que duela)
+          const isAmount = cell.pct == null && cell.actual > 0;
+          const fontCls = isAmount ? "text-[10px] leading-none"
+            : isCur ? "font-bold text-[13px]" : strong ? "font-semibold" : "";
+          return (
+            <td key={cell.month}
+              onClick={clickable ? () => goToTx({ ...filt, ...monthRange(cell.month) }) : undefined}
+              className={`text-center rounded ${clickable ? "cursor-pointer hover:brightness-125" : ""} ${fontCls}`}
+              style={{ ...cellStyle(cell, inc), width: 44, height: 26, ...(isCur ? { boxShadow: "inset 0 0 0 1.5px #d4af6e" } : {}) }}
+              title={cell.budget || cell.actual
+                ? `${MONTHS[cell.month - 1]}: real ${fmt(cell.actual)} / ppto ${fmt(cell.budget)} — clic para ver movimientos`
+                : ""}>
+              {cell.pct != null ? `${Math.round(cell.pct)}%` : (isAmount ? intFmt(cell.actual) : "")}
+            </td>
+          );
+        })}
+        <td onClick={ytdClickable ? () => goToTx({ ...filt, ...ytdRange() }) : undefined}
+          className={`text-center rounded ${ytdAmount ? "text-[10px] leading-none font-semibold" : "font-semibold"} ${ytdClickable ? "cursor-pointer hover:brightness-125" : ""}`}
+          style={{ ...cellStyle({ pct: ytd.ytd_pct, actual: ytd.ytd_actual }, inc), width: 52, height: 26 }}
+          title={`YTD: real ${fmt(ytd.ytd_actual)} / ppto ${fmt(ytd.ytd_budget)} — clic para ver movimientos`}>
+          {ytd.ytd_pct != null ? `${Math.round(ytd.ytd_pct)}%` : (ytdAmount ? intFmt(ytd.ytd_actual) : "·")}
+        </td>
+      </tr>
+    );
+  };
+
+  const global = aggCells(matrix.filter((r) => r.type_id !== "T01"));
+  const classAgg = {
+    C01: aggCells(matrix.filter((r) => r.type_id === "T02" && r.class_id === "C01")),
+    C02: aggCells(matrix.filter((r) => r.type_id === "T02" && r.class_id === "C02")),
+  };
+
+  const bodyRows = [];
+  let curType = null;
+  matrix.forEach((r, i) => {
+    if (r.type_id !== curType) {
+      curType = r.type_id;
+      bodyRows.push(
+        <tr key={`h-${r.type_id}`}>
+          <td colSpan={14} className="pt-3 pb-1 px-2 text-champagne text-xs font-bold uppercase tracking-wide">
+            {r.type_label}
+          </td>
+        </tr>
+      );
+    }
+    bodyRows.push(row(
+      `${r.class_id}-${r.category_id}`,
+      <><span className="text-white">{r.category_icon} {r.category_label}</span>
+        <span className="text-navy-500 ml-1.5">· {r.class_label}</span></>,
+      r.cells, { ytd_budget: r.ytd_budget, ytd_actual: r.ytd_actual, ytd_pct: r.ytd_pct },
+      r.type_id === "T01", { type_id: r.type_id, category_id: r.category_id },
+    ));
+    // Subtotal Fijo/Variable al cerrar el grupo dentro de Gasto
+    const next = matrix[i + 1];
+    if (r.type_id === "T02" && CLASS_LABEL[r.class_id] &&
+        (!next || next.type_id !== "T02" || next.class_id !== r.class_id)) {
+      const agg = classAgg[r.class_id];
+      bodyRows.push(row(
+        `sub-${r.class_id}`,
+        <span className="text-navy-200 font-semibold">Total {CLASS_LABEL[r.class_id]}</span>,
+        agg.cells, agg, false, { type_id: "T02", class_id: r.class_id },
+        { strong: true, labelBg: "bg-navy-900" },
+      ));
+    }
+  });
+
+  return (
+    <table className="text-xs border-separate" style={{ borderSpacing: 2 }}>
+      <thead>
+        <tr>
+          <th className="text-left px-2 py-1 text-navy-400 font-medium sticky left-0 bg-navy-800 z-10">Categoría</th>
+          {MONTHS.map((m, i) => {
+            const isCur = year === curYear && i + 1 === curMonth;
+            return (
+              <th key={m} className={`px-1 py-1 w-12 text-center ${isCur
+                ? "text-champagne font-bold text-sm" : "text-navy-500 font-medium"}`}>{m}</th>
+            );
+          })}
+          <th className="px-2 py-1 text-navy-400 font-medium text-center">YTD</th>
+        </tr>
+      </thead>
+      <tbody>
+        {row("global", <span className="text-white font-bold">🌐 Global del mes</span>,
+          global.cells, global, false, {}, { strong: true, labelBg: "bg-navy-900" })}
+        <tr><td colSpan={14} className="h-1" /></tr>
+        {bodyRows}
+      </tbody>
+    </table>
+  );
+}
+
 // ── Progress bar ──────────────────────────────────────────────────────────────
 function ProgressBar({ pct, isIncome }) {
   const width = pct == null ? 0 : Math.min(pct, 100);
@@ -624,83 +751,11 @@ export default function Budgets() {
             <div className="order-1 bg-navy-800 border border-navy-700 rounded-xl p-5">
               <p className="text-navy-300 text-sm font-medium mb-1">Estado del presupuesto</p>
               <p className="text-navy-500 text-xs mb-3">
-                % gastado sobre presupuesto · pasa el ratón por una celda para ver importes
+                % gastado sobre presupuesto · pasa el ratón por una celda para ver importes · clic para ver los movimientos
               </p>
               <div className="overflow-x-auto">
-                <table className="text-xs border-separate" style={{ borderSpacing: 2 }}>
-                  <thead>
-                    <tr>
-                      <th className="text-left px-2 py-1 text-navy-400 font-medium sticky left-0 bg-navy-800 z-10">
-                        Categoría
-                      </th>
-                      {MONTHS.map((m, i) => {
-                        const isCur = year === curYear && i + 1 === curMonth;
-                        return (
-                          <th key={m}
-                            className={`px-1 py-1 w-12 text-center ${isCur
-                              ? "text-champagne font-bold text-sm" : "text-navy-500 font-medium"}`}>
-                            {m}
-                          </th>
-                        );
-                      })}
-                      <th className="px-2 py-1 text-navy-400 font-medium text-center">YTD</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(annual.matrix || []).map((row, i) => {
-                      const prev = annual.matrix[i - 1];
-                      const showType = !prev || prev.type_id !== row.type_id;
-                      const inc = row.type_id === "T01";
-                      const ytdCell = { pct: row.ytd_pct, budget: row.ytd_budget, actual: row.ytd_actual };
-                      return (
-                        <Fragment key={`${row.class_id}-${row.category_id}`}>
-                          {showType && (
-                            <tr>
-                              <td colSpan={14} className="pt-3 pb-1 px-2 text-champagne text-xs font-bold uppercase tracking-wide">
-                                {row.type_label}
-                              </td>
-                            </tr>
-                          )}
-                          <tr>
-                            <td className="px-2 py-1 sticky left-0 bg-navy-800 z-10 whitespace-nowrap">
-                              <span className="text-white">{row.category_icon} {row.category_label}</span>
-                              <span className="text-navy-500 ml-1.5">· {row.class_label}</span>
-                            </td>
-                            {row.cells.map((cell) => {
-                              const isCur = year === curYear && cell.month === curMonth;
-                              const clickable = cell.budget || cell.actual;
-                              return (
-                                <td key={cell.month}
-                                  onClick={clickable ? () => goToTx({
-                                    type_id: row.type_id, category_id: row.category_id, ...monthRange(cell.month),
-                                  }) : undefined}
-                                  className={`text-center rounded ${clickable ? "cursor-pointer hover:brightness-125" : ""} ${isCur ? "font-bold text-[13px]" : ""}`}
-                                  style={{
-                                    ...cellStyle(cell, inc), width: 44, height: 26,
-                                    ...(isCur ? { boxShadow: "inset 0 0 0 1.5px #d4af6e" } : {}),
-                                  }}
-                                  title={cell.budget || cell.actual
-                                    ? `${MONTHS[cell.month - 1]}: real ${fmt(cell.actual)} / ppto ${fmt(cell.budget)} — clic para ver movimientos`
-                                    : ""}>
-                                  {cell.pct != null ? `${Math.round(cell.pct)}%` : (cell.actual > 0 ? "·" : "")}
-                                </td>
-                              );
-                            })}
-                            <td
-                              onClick={(row.ytd_budget || row.ytd_actual) ? () => goToTx({
-                                type_id: row.type_id, category_id: row.category_id, ...ytdRange(),
-                              }) : undefined}
-                              className={`text-center rounded font-semibold ${(row.ytd_budget || row.ytd_actual) ? "cursor-pointer hover:brightness-125" : ""}`}
-                              style={{ ...cellStyle(ytdCell, inc), width: 52, height: 26 }}
-                              title={`YTD: real ${fmt(row.ytd_actual)} / ppto ${fmt(row.ytd_budget)} — clic para ver movimientos`}>
-                              {row.ytd_pct != null ? `${Math.round(row.ytd_pct)}%` : "·"}
-                            </td>
-                          </tr>
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <BudgetMatrix matrix={annual.matrix || []} year={year} curYear={curYear}
+                  curMonth={curMonth} goToTx={goToTx} monthRange={monthRange} ytdRange={ytdRange} />
               </div>
               {/* Leyenda */}
               <div className="flex items-center gap-3 mt-4 text-xs text-navy-400 flex-wrap">
