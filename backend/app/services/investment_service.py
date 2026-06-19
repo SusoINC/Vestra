@@ -58,8 +58,8 @@ def get_catalogues(user_id: str) -> dict:
 
 # ── Cartera / posiciones ────────────────────────────────────────────────────
 
-TYPE_LABELS = {"CRY": "Cripto", "ETF": "ETF", "FND": "Fondo", "STK": "Acción"}
-TYPE_COLORS = {"CRY": "#f59e0b", "ETF": "#3b82f6", "FND": "#8b5cf6", "STK": "#22c55e"}
+TYPE_LABELS = {"CRY": "Cripto", "ETF": "ETF", "FND": "Fondo", "STK": "Acción", "PHY": "Físico"}
+TYPE_COLORS = {"CRY": "#f59e0b", "ETF": "#3b82f6", "FND": "#8b5cf6", "STK": "#22c55e", "PHY": "#eab308"}
 
 
 def _tickers_of_type(asset_type: str):

@@ -15,7 +15,7 @@ const TS_RANGES = [["1m", "1M"], ["3m", "3M"], ["6m", "6M"], ["ytd", "YTD"], ["1
 const TS_GRAN = [["day", "Día"], ["week", "Semana"], ["month", "Mes"]];
 const TS_VIEW = [["abs", "€"], ["var", "Rentabilidad %"]];
 // Color coding por tipo de activo (igual que Análisis de símbolos)
-const TYPE_COLORS = { CRY: "#f59e0b", ETF: "#3b82f6", FND: "#8b5cf6", STK: "#22c55e" };
+const TYPE_COLORS = { CRY: "#f59e0b", ETF: "#3b82f6", FND: "#8b5cf6", STK: "#22c55e", PHY: "#eab308" };
 
 function EvoTooltip({ active, payload, label, view }) {
   if (!active || !payload?.length) return null;
@@ -233,8 +233,8 @@ export default function Investments() {
                   ))}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="flex gap-1 bg-navy-900 rounded-lg p-1 border border-navy-700">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap gap-1 bg-navy-900 rounded-lg p-1 border border-navy-700">
                   {TS_GRAN.map(([v, label]) => (
                     <button key={v} onClick={() => setTsGran(v)}
                       className={`px-2.5 py-1 rounded text-xs transition ${tsGran === v
@@ -243,7 +243,7 @@ export default function Investments() {
                     </button>
                   ))}
                 </div>
-                <div className="flex gap-1 bg-navy-900 rounded-lg p-1 border border-navy-700">
+                <div className="flex flex-wrap gap-1 bg-navy-900 rounded-lg p-1 border border-navy-700">
                   {TS_RANGES.map(([v, label]) => (
                     <button key={v} onClick={() => setTsRange(v)}
                       className={`px-2.5 py-1 rounded text-xs transition ${tsRange === v

@@ -41,10 +41,41 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 EODHD_TOKEN = os.environ.get("EODHD_API_TOKEN", "")
 INCREMENTAL_DAYS = 40
+TROY_OZ_G = 31.1034768  # gramos por onza troy
 
 
 def _num(v):
     return None if pd.isna(v) else float(v)
+
+
+def fetch_gold_eur_g(symbol: Symbol, period: str) -> list[dict]:
+    """Precio del oro físico en €/gramo, derivado de GC=F (USD/oz) y EUR/USD.
+
+    eur_g = (USD_oz / EURUSD) / 31.1034768. Es el precio spot; la diferencia con
+    lo pagado (que incluye prima del lingote) se refleja como P&L, igual que un
+    activo más. Aproxima bien el precio de recompra de lingotes reconocidos."""
+    try:
+        gc = yf.Ticker("GC=F").history(period=period, auto_adjust=False)["Close"].dropna()
+        fx = yf.Ticker("EURUSD=X").history(period=period, auto_adjust=False)["Close"].dropna()
+    except Exception as exc:
+        print(f"  {symbol.ticker}: ERROR oro {exc}")
+        return []
+    if gc.empty or fx.empty:
+        print(f"  {symbol.ticker}: sin datos GC=F/EURUSD")
+        return []
+    fx_by_date = {ts.date(): float(v) for ts, v in fx.items()}
+    rows, last_fx = [], None
+    for ts, usd_oz in gc.items():
+        d = ts.date()
+        eurusd = fx_by_date.get(d, last_fx)
+        if eurusd:
+            last_fx = eurusd
+        if not eurusd:
+            continue
+        eur_g = round((float(usd_oz) / eurusd) / TROY_OZ_G, 4)
+        rows.append({"date": d, "ticker": symbol.ticker,
+                     "open": eur_g, "high": eur_g, "low": eur_g, "close": eur_g, "volume": 0})
+    return rows
 
 
 def fetch_yfinance(symbol: Symbol, period: str) -> list[dict]:
@@ -115,7 +146,9 @@ def fetch(period: str, only_ticker: str | None = None) -> None:
 
         total = 0
         for s in symbols:
-            if s.market == "eodhd":
+            if s.market == "gold_eur_g":
+                rows = fetch_gold_eur_g(s, period)
+            elif s.market == "eodhd":
                 rows = fetch_eodhd(s, period)
                 if not rows:  # 402/sin plan → probar yfinance (.DE)
                     rows = fetch_yfinance(s, period)
