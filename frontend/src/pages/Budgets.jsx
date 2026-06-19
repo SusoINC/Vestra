@@ -160,8 +160,10 @@ function BudgetMatrix({ matrix, year, curYear, curMonth, goToTx, monthRange, ytd
       curType = r.type_id;
       bodyRows.push(
         <tr key={`h-${r.type_id}`}>
-          <td colSpan={14} className="pt-3 pb-1 px-2 text-champagne text-xs font-bold uppercase tracking-wide">
-            {r.type_label}
+          <td colSpan={14} className="pt-3 pb-1 px-2">
+            <span className="sticky left-2 inline-block text-champagne text-xs font-bold uppercase tracking-wide">
+              {r.type_label}
+            </span>
           </td>
         </tr>
       );
