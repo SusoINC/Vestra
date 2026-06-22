@@ -14,6 +14,9 @@ import InvestmentEntry from "./pages/InvestmentEntry";
 import SymbolAnalysis from "./pages/SymbolAnalysis";
 import Vehicles from "./pages/Vehicles";
 import VehicleDetail from "./pages/VehicleDetail";
+import Loans from "./pages/Loans";
+import LoanDetail from "./pages/LoanDetail";
+import EuriborHistory from "./pages/EuriborHistory";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AppLayout from "./layouts/AppLayout";
 import useAuthStore from "./store/authStore";
@@ -53,6 +56,9 @@ export default function App() {
               <Route path="/symbol-analysis"   element={<SymbolAnalysis />} />
               <Route path="/vehicles"          element={<Vehicles />} />
               <Route path="/vehicles/:id"      element={<VehicleDetail />} />
+              <Route path="/loans"             element={<Loans />} />
+              <Route path="/loans/euribor"     element={<EuriborHistory />} />
+              <Route path="/loans/:id"         element={<LoanDetail />} />
             </Route>
           </Route>
 

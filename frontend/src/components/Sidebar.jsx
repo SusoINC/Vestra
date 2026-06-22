@@ -38,6 +38,7 @@ export function SidebarNav({ onNavigate }) {
         <NavLink to="/edit-transactions" onClick={close} className={link}><span>✏️</span> Editar movimientos</NavLink>
         <NavLink to="/budgets" onClick={close} className={link}><span>📊</span> Presupuestos</NavLink>
         <NavLink to="/import" onClick={close} className={link}><span>📥</span> Importar</NavLink>
+        <NavLink to="/loans" onClick={close} className={link}><span>🏦</span> Préstamos</NavLink>
 
         <p className={sectionCls}>Inversiones</p>
         <NavLink to="/investments" end onClick={close} className={link}><span>💼</span> Cartera</NavLink>

@@ -7,9 +7,11 @@ def register_blueprints(app: Flask) -> None:
     from .investment import bp as investment_bp
     from .vehicle import bp as vehicle_bp
     from .project import bp as project_bp
+    from .loan import bp as loan_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(finance_bp, url_prefix="/api/v1/finance")
     app.register_blueprint(investment_bp, url_prefix="/api/v1/investments")
     app.register_blueprint(vehicle_bp, url_prefix="/api/v1/vehicles")
     app.register_blueprint(project_bp, url_prefix="/api/v1/projects")
+    app.register_blueprint(loan_bp, url_prefix="/api/v1/loans")

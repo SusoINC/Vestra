@@ -182,3 +182,39 @@ class Budget(db.Model):
     day: Mapped[int | None] = mapped_column(Integer)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     notes: Mapped[str | None] = mapped_column(String(512))
+
+
+class Loan(db.Model):
+    """Préstamo o hipoteca. Interés fijo, variable (euríbor+diferencial) o mixto."""
+    __tablename__ = "loans"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), default="loan")        # loan | mortgage
+    lender: Mapped[str | None] = mapped_column(String(128))
+    principal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    start_date: Mapped[date_type] = mapped_column(Date, nullable=False)
+    term_months: Mapped[int] = mapped_column(Integer, nullable=False)
+    payment_day: Mapped[int] = mapped_column(Integer, default=1)
+    rate_kind: Mapped[str] = mapped_column(String(16), default="fixed")  # fixed | variable | mixed
+    tin_fixed: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))     # % anual tramo fijo
+    mixed_fixed_months: Mapped[int | None] = mapped_column(Integer)      # meses de tramo fijo (mixto)
+    spread: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))        # diferencial sobre euríbor
+    revision_months: Mapped[int] = mapped_column(Integer, default=12)    # periodicidad de revisión variable
+    opening_fee: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    early_fee_pct: Mapped[Decimal] = mapped_column(Numeric(5, 4), default=Decimal("0"))  # comisión amortización %
+    status: Mapped[str] = mapped_column(String(16), default="active")    # active | paid | cancelled
+    category_id: Mapped[str | None] = mapped_column(String(8), ForeignKey("tx_category.id"))
+    account_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("accounts.id"))
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class EuriborRate(db.Model):
+    """Euríbor a 1 año, media mensual (fuente: ECB Data Portal)."""
+    __tablename__ = "euribor_rates"
+
+    month: Mapped[date_type] = mapped_column(Date, primary_key=True)     # primer día del mes
+    rate: Mapped[Decimal] = mapped_column(Numeric(6, 4), nullable=False)
