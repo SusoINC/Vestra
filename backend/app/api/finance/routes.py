@@ -321,3 +321,16 @@ def budgets_annual():
     if not year:
         return error("MISSING_FIELDS", "year es obligatorio")
     return ok(budget_service.annual_summary(user.id, year))
+
+
+@bp.get("/budgets/category-timeline")
+@jwt_required()
+def budget_category_timeline():
+    user = get_current_user()
+    cat = request.args.get("category_id")
+    year = request.args.get("year", type=int)
+    month = request.args.get("month", type=int)
+    if not (cat and year and month):
+        return error("MISSING_FIELDS", "category_id, year y month son obligatorios")
+    return ok(budget_service.category_timeline(
+        user.id, cat, year, month, request.args.get("type_id")))

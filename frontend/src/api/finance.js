@@ -47,6 +47,8 @@ const financeApi = {
     axiosClient.get("/finance/budgets/comparison", { params }),
   getBudgetAnnual: (params = {}) =>
     axiosClient.get("/finance/budgets/annual", { params }),
+  getCategoryTimeline: (params = {}) =>
+    axiosClient.get("/finance/budgets/category-timeline", { params }),
 
   // Dashboard
   getDashboard: (params = {}) => axiosClient.get("/finance/dashboard", { params }),

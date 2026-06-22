@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, Fragment } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  ResponsiveContainer, ComposedChart, Bar, Line, LineChart,
+  ResponsiveContainer, ComposedChart, Bar, Line, LineChart, Cell,
   XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from "recharts";
 import financeApi from "../api/finance";
@@ -107,6 +107,14 @@ function aggCells(rows) {
 }
 
 const CLASS_LABEL = { C01: "Fijo", C02: "Variable" };
+// Badge de clase (label + estilo) para listados
+const CLASS_BADGE = {
+  C01: { label: "Fijo", cls: "text-blue-300 bg-blue-500/15" },
+  C02: { label: "Variable", cls: "text-amber-300 bg-amber-500/15" },
+  C03: { label: "Especial", cls: "text-purple-300 bg-purple-500/15" },
+  C04: { label: "Deuda", cls: "text-red-300 bg-red-500/15" },
+};
+const CLASS_SORT = { C01: 0, C02: 1, C03: 2, C04: 3 };
 
 // Matriz "Estado del presupuesto": global, secciones por tipo, subtotales Fijo/Variable
 function BudgetMatrix({ matrix, year, curYear, curMonth, goToTx, monthRange, ytdRange }) {
@@ -211,6 +219,351 @@ function BudgetMatrix({ matrix, year, curYear, curMonth, goToTx, monthRange, ytd
         {bodyRows}
       </tbody>
     </table>
+  );
+}
+
+// ── Análisis del mes ────────────────────────────────────────────────────────
+function MonthAnalysis({ comparison, lines, year, month, curYear, curMonth, goToTx, monthRange }) {
+  const [sel, setSel] = useState(null);          // categoría seleccionada (drill-down)
+  const [timeline, setTimeline] = useState(null);
+  const [loadingTl, setLoadingTl] = useState(false);
+  const [showUpcoming, setShowUpcoming] = useState(false);
+  const curLabel = `${MONTHS[month - 1]} ${String(year).slice(2)}`;
+
+  const t = comparison?.totals;
+  const budget = t?.budget_expenses || 0;
+  const actual = t?.actual_expenses || 0;
+  const remaining = t?.remaining_expenses ?? (budget - actual);
+  const spentPct = budget > 0 ? (actual / budget) * 100 : (actual > 0 ? 100 : 0);
+
+  const isCurrent = year === curYear && month === curMonth;
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const day = isCurrent ? new Date().getDate() : daysInMonth;
+  const elapsedFrac = day / daysInMonth;
+  const projection = isCurrent && day > 0 ? actual / elapsedFrac : actual;
+
+  const OUT = ["T04", "T06", "T02", "T05"];   // salidas: inversión, ahorro, gasto, deuda
+  const TYPE_COLOR = { T02: "#ef4444", T04: "#3b82f6", T06: "#2dd4bf", T05: "#f59e0b" };
+  const TYPE_ORDER_V = { T04: 1, T06: 2, T02: 3, T05: 4 };
+
+  // "Esperado a día de hoy" según el día de cada línea de presupuesto (todas las salidas):
+  // los fijos con día (hipoteca) cuentan enteros una vez pasa su día; lo no fechado se reparte.
+  const expLines = (lines || []).filter((l) => OUT.includes(l.type_id) && l.month === month);
+  const lineExpected = (l) => l.day ? (l.day <= day ? Number(l.amount) : 0) : Number(l.amount) * elapsedFrac;
+  const expectedByCat = {};
+  const daysByCat = {};   // category_id → días con presupuesto fechado (para el "cuándo")
+  expLines.forEach((l) => {
+    expectedByCat[l.category_id] = (expectedByCat[l.category_id] || 0) + lineExpected(l);
+    if (l.day) (daysByCat[l.category_id] ||= new Set()).add(l.day);
+  });
+  const whenFor = (catId) => {
+    let ds = daysByCat[catId] ? [...daysByCat[catId]].sort((a, b) => a - b) : [];
+    if (isCurrent) ds = ds.filter((d) => d > day);   // solo días aún por venir
+    return ds.length ? `día ${ds.join(", ")}` : null;
+  };
+  const expectedTotal = isCurrent ? Object.values(expectedByCat).reduce((a, b) => a + b, 0) : budget;
+  const markerPct = budget > 0 ? Math.min((expectedTotal / budget) * 100, 100) : 0;
+
+  let status, statusColor;
+  if (budget <= 0) { status = "Sin presupuesto este mes"; statusColor = "text-navy-400"; }
+  else if (actual > budget) { status = "Te has pasado del presupuesto"; statusColor = "text-red-400"; }
+  else if (isCurrent && actual > expectedTotal * 1.05) { status = "Vas por encima del ritmo"; statusColor = "text-amber-400"; }
+  else if (isCurrent && actual < expectedTotal * 0.95) { status = "Vas holgado"; statusColor = "text-green-400"; }
+  else { status = isCurrent ? "Vas al día" : "Cerrado"; statusColor = "text-green-400"; }
+  const barColor = actual > budget ? "#ef4444"
+    : (isCurrent && actual > expectedTotal * 1.05 ? "#eab308" : "#22c55e");
+
+  const severity = (c) => {
+    const o = c.budget > 0 ? c.actual - c.budget : 0;
+    return [o > 0 ? 0 : 1, -(c.budget > 0 ? c.actual / c.budget : 9), -c.actual];
+  };
+
+  // Balance del mes: lo que entra (ingresos) vs todo lo que sale
+  const typeTot = {};
+  (comparison?.groups || []).forEach((g) => { typeTot[g.type_id] = { label: g.type_label, budget: g.budget, actual: g.actual }; });
+  const income = typeTot.T01?.actual || 0;
+  const outflowTotal = OUT.reduce((s, k) => s + (typeTot[k]?.actual || 0), 0);
+  const net = income - outflowTotal;
+
+  // Todas las categorías de salida, ordenadas por tipo (Vestra) → clase → severidad
+  const allCats = [];
+  (comparison?.groups || []).filter((g) => OUT.includes(g.type_id)).forEach((g) =>
+    (g.classes || []).forEach((cl) =>
+      (cl.categories || []).forEach((c) =>
+        allCats.push({ ...c, type_id: g.type_id, type_label: g.type_label,
+          class_id: c.class_id ?? cl.class_id, expected: expectedByCat[c.category_id] || 0 }))));
+  const byTypeClass = (a, b) =>
+    ((TYPE_ORDER_V[a.type_id] ?? 9) - (TYPE_ORDER_V[b.type_id] ?? 9))
+    || ((CLASS_SORT[a.class_id] ?? 9) - (CLASS_SORT[b.class_id] ?? 9));
+  allCats.sort((a, b) => {
+    const td = byTypeClass(a, b);
+    if (td) return td;
+    const sa = severity(a), sb = severity(b);
+    return sa[0] - sb[0] || sa[1] - sb[1] || sa[2] - sb[2];
+  });
+
+  // Por venir (todas las salidas con presupuesto sin gastar) — orden tipo → clase
+  const upcoming = allCats.filter((c) => c.budget > 0 && c.remaining > 0.5)
+    .sort((a, b) => byTypeClass(a, b) || (b.remaining - a.remaining));
+  const totalUpcoming = upcoming.reduce((s, c) => s + c.remaining, 0);
+
+  // Drill-down: histórico de la categoría seleccionada
+  useEffect(() => { setSel(null); }, [year, month]);
+  useEffect(() => {
+    if (!sel) { setTimeline(null); return; }
+    setLoadingTl(true);
+    financeApi.getCategoryTimeline({ category_id: sel.category_id, year, month, type_id: sel.type_id })
+      .then((r) => setTimeline(r.data.data)).finally(() => setLoadingTl(false));
+  }, [sel, year, month]);
+
+  const catColor = (c) => !(c.budget > 0) ? "#64748b"
+    : (c.actual > c.budget ? "#ef4444" : (isCurrent && c.actual > c.expected * 1.05 ? "#eab308" : "#22c55e"));
+
+  return (
+    <div className="space-y-4">
+      {/* Balance del mes: lo que entra vs todo lo que sale */}
+      <div className="bg-navy-800 border border-navy-700 rounded-xl p-5">
+        <p className="text-navy-300 text-sm font-medium mb-3">Balance del mes</p>
+        <div className="grid grid-cols-3 gap-3 mb-3">
+          <div>
+            <p className="text-navy-500 text-xs">Entra (ingresos)</p>
+            <p className="text-green-400 font-bold text-lg">{fmt(income)}</p>
+          </div>
+          <div>
+            <p className="text-navy-500 text-xs">Sale (todo)</p>
+            <p className="text-red-400 font-bold text-lg">{fmt(outflowTotal)}</p>
+          </div>
+          <div>
+            <p className="text-navy-500 text-xs">Neto</p>
+            <p className={`font-bold text-lg ${net >= 0 ? "text-green-400" : "text-red-400"}`}>{net >= 0 ? "+" : ""}{fmt(net)}</p>
+          </div>
+        </div>
+        {/* Barra de salidas apiladas por tipo */}
+        <div className="flex h-3 rounded-full overflow-hidden bg-navy-900">
+          {OUT.map((k) => {
+            const v = typeTot[k]?.actual || 0;
+            const w = outflowTotal > 0 ? (v / outflowTotal) * 100 : 0;
+            return w > 0 ? <div key={k} style={{ width: `${w}%`, background: TYPE_COLOR[k] }} /> : null;
+          })}
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
+          {OUT.filter((k) => (typeTot[k]?.actual || 0) > 0).map((k) => (
+            <button key={k} onClick={() => goToTx({ type_id: k, ...monthRange(month) })}
+              className="flex items-center gap-1.5 text-navy-300 hover:text-white">
+              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: TYPE_COLOR[k] }} />
+              {typeTot[k].label} <span className="text-navy-500">{fmt(typeTot[k].actual)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Ritmo del gasto */}
+      <div className="bg-navy-800 border border-navy-700 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-navy-300 text-sm font-medium">Ritmo de salidas</p>
+          <span className={`text-xs font-semibold ${statusColor}`}>{status}</span>
+        </div>
+        <div className="relative h-5 bg-navy-900 rounded-full overflow-hidden">
+          <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(spentPct, 100)}%`, background: barColor }} />
+          {isCurrent && (
+            <div className="absolute top-0 bottom-0 w-1 bg-champagne rounded" style={{ left: `calc(${markerPct}% - 2px)` }} />
+          )}
+        </div>
+        <div className="flex items-center justify-between mt-1.5 text-xs text-navy-500">
+          <span>Gastado <span className="text-white font-medium">{fmt(actual)}</span> de {fmt(budget)}</span>
+          {isCurrent && <span className="text-champagne">▲ esperado hoy ({Math.round(markerPct)}%)</span>}
+        </div>
+
+        <div className="grid grid-cols-3 gap-3 mt-4">
+          <div>
+            <p className="text-navy-500 text-xs">Disponible</p>
+            <p className={`font-bold ${remaining >= 0 ? "text-green-400" : "text-red-400"}`}>{fmt(remaining)}</p>
+          </div>
+          <button onClick={() => setShowUpcoming((s) => !s)} className="text-left">
+            <p className="text-navy-500 text-xs flex items-center gap-1">Por venir <span className="text-[9px]">{showUpcoming ? "▲" : "▼"}</span></p>
+            <p className="text-navy-200 font-bold">{fmt(totalUpcoming)}</p>
+          </button>
+          <div>
+            <p className="text-navy-500 text-xs">{isCurrent ? "Proyección fin" : `Día ${day}/${daysInMonth}`}</p>
+            <p className={`font-bold ${isCurrent ? (projection > budget ? "text-red-400" : "text-green-400") : "text-navy-200"}`}>
+              {isCurrent ? fmt(projection) : `${Math.round(spentPct)}%`}
+            </p>
+          </div>
+        </div>
+
+        {/* Detalle de "Por venir" */}
+        {showUpcoming && (
+          <div className="mt-4 pt-3 border-t border-navy-700">
+            {upcoming.length === 0 ? (
+              <p className="text-navy-500 text-sm text-center py-2">No queda presupuesto por gastar</p>
+            ) : (
+              <div className="space-y-0.5">
+                {upcoming.map((c, i) => {
+                  const prev = upcoming[i - 1];
+                  const newType = !prev || prev.type_id !== c.type_id;
+                  const sub = upcoming.filter((x) => x.type_id === c.type_id).reduce((s, x) => s + x.remaining, 0);
+                  return (
+                    <Fragment key={`${c.type_id}-${c.category_id}`}>
+                      {newType && (
+                        <div className="flex items-center justify-between px-2 pt-2 first:pt-0">
+                          <span className="text-xs font-bold uppercase tracking-wide" style={{ color: TYPE_COLOR[c.type_id] }}>
+                            {c.type_label}
+                          </span>
+                          <span className="text-navy-500 text-xs">quedan {fmt(sub)}</span>
+                        </div>
+                      )}
+                      <button onClick={() => setSel(c)}
+                        className="w-full flex items-center justify-between gap-2 text-sm hover:bg-navy-700/30 rounded-lg px-2 py-1 transition">
+                        <span className="flex items-baseline gap-2 truncate text-navy-200">
+                          {c.category_icon} {c.category_label}
+                          {CLASS_BADGE[c.class_id] && (
+                            <span className={`text-[10px] px-1.5 rounded ${CLASS_BADGE[c.class_id].cls}`}>{CLASS_BADGE[c.class_id].label}</span>
+                          )}
+                          {whenFor(c.category_id) && (
+                            <span className="text-[10px] text-champagne whitespace-nowrap">🗓 {whenFor(c.category_id)}</span>
+                          )}
+                        </span>
+                        <span className="text-navy-300 whitespace-nowrap">{fmt(c.remaining)}</span>
+                      </button>
+                    </Fragment>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Salidas por categoría (todos los tipos · clic → drill-down) */}
+      <div className="bg-navy-800 border border-navy-700 rounded-xl p-4">
+        <p className="text-navy-300 text-sm font-medium mb-1 px-1">Salidas por categoría</p>
+        <p className="text-navy-500 text-xs mb-2 px-1">Gasto · inversión · ahorro · deuda — pulsa para el detalle</p>
+        <div className="space-y-1 max-h-[28rem] overflow-y-auto momentum-scroll">
+          {allCats.map((c, i) => {
+            const prev = allCats[i - 1];
+            const newType = !prev || prev.type_id !== c.type_id;
+            const newClass = newType || prev.class_id !== c.class_id;
+            const tt = typeTot[c.type_id];
+            const pct = c.budget > 0 ? Math.min((c.actual / c.budget) * 100, 100) : (c.actual > 0 ? 100 : 0);
+            const expPct = c.budget > 0 ? Math.min((c.expected / c.budget) * 100, 100) : 0;
+            const open = sel?.category_id === c.category_id && sel?.type_id === c.type_id;
+            return (
+              <Fragment key={`${c.type_id}-${c.category_id}`}>
+                {newType && (
+                  <div className="flex items-center justify-between px-1 pt-2 first:pt-0">
+                    <span className="text-xs font-bold uppercase tracking-wide" style={{ color: TYPE_COLOR[c.type_id] }}>
+                      {c.type_label}
+                    </span>
+                    <span className="text-navy-500 text-xs">
+                      {fmt(tt?.actual || 0)}{tt?.budget > 0 ? <span className="text-navy-600"> / {fmt(tt.budget)}</span> : null}
+                    </span>
+                  </div>
+                )}
+                {newClass && CLASS_BADGE[c.class_id] && (
+                  <p className={`px-2 pt-0.5 text-[10px] font-semibold uppercase tracking-wide ${c.class_id === "C01"
+                    ? "text-blue-300" : "text-amber-300"}`}>{CLASS_BADGE[c.class_id].label}</p>
+                )}
+                <button onClick={() => setSel(open ? null : c)}
+                  className={`w-full text-left py-1.5 px-2 rounded-lg transition ${open ? "bg-navy-700/50" : "hover:bg-navy-700/30"}`}>
+                  <div className="flex items-center justify-between gap-2 text-sm">
+                    <span className="text-white truncate">{c.category_icon} {c.category_label}</span>
+                    <span className="text-xs whitespace-nowrap">
+                      {c.budget > 0 && c.actual > c.budget
+                        ? <span className="text-red-400">+{fmt(c.actual - c.budget)}</span>
+                        : <span className="text-navy-400">{fmt(c.actual)}{c.budget > 0 ? ` / ${fmt(c.budget)}` : ""}</span>}
+                    </span>
+                  </div>
+                  <div className="relative mt-1 h-1.5 bg-navy-900 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: catColor(c) }} />
+                    {isCurrent && c.budget > 0 && (
+                      <div className="absolute top-0 bottom-0 w-0.5 bg-champagne" style={{ left: `${expPct}%` }} />
+                    )}
+                  </div>
+                </button>
+              </Fragment>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Drill-down */}
+      {sel && (
+        <div className="bg-navy-800 border border-champagne/40 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-white font-semibold">{sel.category_icon} {sel.category_label}</p>
+            <button onClick={() => setSel(null)} className="text-navy-400 hover:text-white text-sm">✕</button>
+          </div>
+
+          {/* Histórico 6 meses atrás + 3 adelante */}
+          <p className="text-navy-400 text-xs mb-2">Presupuesto vs gasto · 6 meses atrás → 3 adelante</p>
+          {loadingTl || !timeline ? (
+            <p className="text-navy-500 text-sm py-8 text-center">Cargando…</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <ComposedChart data={timeline} barGap={2}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#21305a" vertical={false} />
+                <XAxis dataKey="label" axisLine={false} tickLine={false} interval={0}
+                  tick={({ x, y, payload }) => {
+                    const cur = payload.value === curLabel;
+                    return (
+                      <text x={x} y={y + 9} textAnchor="middle" fontSize={cur ? 10 : 9}
+                        fontWeight={cur ? 700 : 400} fill={cur ? "#d4af6e" : "#7f94bc"}>
+                        {payload.value}
+                      </text>
+                    );
+                  }} />
+                <YAxis tick={{ fill: "#7f94bc", fontSize: 10 }} axisLine={false} tickLine={false}
+                  width={40} tickFormatter={(v) => v >= 1000 ? `${Math.round(v / 1000)}k` : v} />
+                <Tooltip content={<DarkTooltip />} cursor={{ fill: "#ffffff08" }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="budget" name="Presupuesto" fill="#3a5490" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="actual" name="Gastado" radius={[2, 2, 0, 0]}>
+                  {timeline.map((m, i) => (
+                    <Cell key={i} fill={m.budget > 0 && m.actual > m.budget ? "#ef4444"
+                      : m.current ? "#d4af6e" : "#22c55e"} />
+                  ))}
+                </Bar>
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+
+          {/* Subcategorías */}
+          <p className="text-navy-400 text-xs mt-4 mb-2">¿Dónde se va? · subcategorías de {MONTHS[month - 1]}</p>
+          {!sel.subcategories || sel.subcategories.length === 0 ? (
+            <p className="text-navy-500 text-sm py-4 text-center">Sin subcategorías este mes</p>
+          ) : (
+            <div className="space-y-1.5">
+              {(() => {
+                // Para subcategorías sin presupuesto, la barra es su peso sobre el mayor gasto
+                const maxActual = Math.max(...sel.subcategories.map((x) => x.actual), 1);
+                return [...sel.subcategories].sort((a, b) => b.actual - a.actual).map((s) => {
+                  // Con presupuesto → consumo (actual/ppto); sin presupuesto → peso relativo
+                  const pct = s.budget > 0
+                    ? Math.min((s.actual / s.budget) * 100, 100)
+                    : (s.actual / maxActual) * 100;
+                  const col = s.budget > 0 ? (s.actual > s.budget ? "#ef4444" : "#22c55e") : "#64748b";
+                  return (
+                    <div key={s.subcategory_id} className="text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-navy-200 truncate">{s.subcategory_label}</span>
+                        <span className="text-navy-400 text-xs whitespace-nowrap">
+                          {fmt(s.actual)}{s.budget > 0 ? <span className="text-navy-600"> / {fmt(s.budget)}</span> : null}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 h-1.5 bg-navy-900 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: col }} />
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          )}
+          <button onClick={() => goToTx({ type_id: "T02", category_id: sel.category_id, ...monthRange(month) })}
+            className="mt-4 text-xs text-champagne hover:text-gold-300">Ver movimientos del mes →</button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -573,7 +926,7 @@ export default function Budgets() {
   const curMonth = now.getMonth() + 1;
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1); // null = año completo
-  const [view, setView] = useState("summary"); // "summary" | "comparison" | "lines"
+  const [view, setView] = useState("month"); // "month" | "summary" | "comparison" | "lines"
   const [comparison, setComparison] = useState(null);
   const [lines, setLines] = useState([]);
   const [annual, setAnnual] = useState(null);
@@ -673,10 +1026,10 @@ export default function Budgets() {
       )}
 
       {/* Toggle de vista */}
-      <div className="flex gap-1 bg-navy-800 rounded-lg p-1 border border-navy-700 w-fit mb-4">
-        {[["summary", "Resumen anual"], ["comparison", "Comparativa"], ["lines", "Líneas"]].map(([v, label]) => (
-          <button key={v} onClick={() => setView(v)}
-            className={`px-4 py-1.5 rounded-md text-sm transition ${view === v
+      <div className="flex gap-1 bg-navy-800 rounded-lg p-1 border border-navy-700 w-full sm:w-fit overflow-x-auto momentum-scroll mb-4">
+        {[["month", "Análisis mes"], ["summary", "Resumen anual"], ["comparison", "Comparativa"], ["lines", "Líneas"]].map(([v, label]) => (
+          <button key={v} onClick={() => { setView(v); if (v === "month" && !month) setMonth(curMonth); }}
+            className={`px-3 sm:px-4 py-1.5 rounded-md text-sm transition whitespace-nowrap ${view === v
               ? "bg-navy-600 text-white font-medium" : "text-navy-400 hover:text-white"}`}>
             {label}
           </button>
@@ -685,6 +1038,14 @@ export default function Budgets() {
 
       {loading ? (
         <p className="text-navy-400">Cargando…</p>
+      ) : view === "month" ? (
+        /* ── Análisis del mes ── */
+        !month ? (
+          <p className="text-navy-500 text-sm py-10 text-center">Elige un mes para ver el análisis.</p>
+        ) : (
+          <MonthAnalysis comparison={comparison} lines={lines} year={year} month={month}
+            curYear={curYear} curMonth={curMonth} goToTx={goToTx} monthRange={monthRange} />
+        )
       ) : view === "summary" ? (
         /* ── Resumen anual ── */
         !annual ? (
@@ -785,6 +1146,7 @@ export default function Budgets() {
                 <tr className="border-b border-navy-700 text-navy-400 text-xs uppercase tracking-wide">
                   <th className="text-left px-4 py-3">Fecha</th>
                   <th className="text-left px-4 py-3">Tipo</th>
+                  <th className="text-left px-4 py-3">Clase</th>
                   <th className="text-left px-4 py-3">Categoría</th>
                   <th className="text-left px-4 py-3 hidden md:table-cell">Subcategoría</th>
                   <th className="text-right px-4 py-3">Importe</th>
@@ -796,6 +1158,8 @@ export default function Budgets() {
                   const TO = { T01: 0, T02: 1, T04: 2, T05: 3, T06: 4 };
                   const ta = TO[a.type_id] ?? 9, tb = TO[b.type_id] ?? 9;
                   if (ta !== tb) return ta - tb;
+                  const cla = CLASS_SORT[a.class_id] ?? 9, clb = CLASS_SORT[b.class_id] ?? 9;
+                  if (cla !== clb) return cla - clb;
                   const ca = catMap[a.category_id]?.label || "", cb = catMap[b.category_id]?.label || "";
                   if (ca !== cb) return ca.localeCompare(cb);
                   const sa = subMap[a.subcategory_id]?.label || "", sb = subMap[b.subcategory_id]?.label || "";
@@ -807,6 +1171,11 @@ export default function Budgets() {
                       {b.month ? `${String(b.day || 1).padStart(2, "0")} ${MONTHS[b.month - 1]}` : "Anual"}
                     </td>
                     <td className="px-4 py-2.5 text-navy-400 text-xs">{typeMap[b.type_id]?.label || "—"}</td>
+                    <td className="px-4 py-2.5">
+                      {CLASS_BADGE[b.class_id]
+                        ? <span className={`text-[10px] px-1.5 py-0.5 rounded ${CLASS_BADGE[b.class_id].cls}`}>{CLASS_BADGE[b.class_id].label}</span>
+                        : <span className="text-navy-600 text-xs">—</span>}
+                    </td>
                     <td className="px-4 py-2.5 text-white">
                       {catMap[b.category_id]?.icon} {catMap[b.category_id]?.label || "—"}
                     </td>
